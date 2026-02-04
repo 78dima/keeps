@@ -1,11 +1,11 @@
 'use client';
 
-import { Sidebar } from '@/components/notes/sidebar';
+import { Sidebar, MobileSidebar } from '@/components/notes/sidebar';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { LogOut } from 'lucide-react';
+import { LogOut, Menu } from 'lucide-react';
 
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
@@ -20,6 +20,7 @@ export default function DashboardLayout({
     const router = useRouter();
     const [isAuthChecking, setIsAuthChecking] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
     useEffect(() => {
@@ -72,9 +73,19 @@ export default function DashboardLayout({
     return (
         <div className="min-h-screen w-full bg-background">
             <Sidebar />
+            <MobileSidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
+
             <div className="flex flex-col md:ml-64 transition-all duration-300">
-                <header className="sticky top-0 z-40 flex h-16 items-center gap-4 px-6 justify-between glass-panel border-b-0 mb-4">
-                    <div className='flex items-center gap-4 w-full max-w-[600px]'>
+                <header className="sticky top-0 z-40 flex h-16 items-center gap-3 px-4 lg:px-6 justify-between glass-panel border-b-0 mb-4 bg-white/50 backdrop-blur-md">
+                    <div className='flex items-center gap-3 w-full max-w-[600px]'>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="md:hidden -ml-2 text-muted-foreground hover:text-foreground"
+                            onClick={() => setMobileSidebarOpen(true)}
+                        >
+                            <Menu className="h-5 w-5" />
+                        </Button>
                         <div className="relative w-full max-w-[400px] group">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                             <Input

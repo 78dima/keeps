@@ -31,7 +31,7 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
             style={bgStyle}
             onClick={() => onEdit(note)}
         >
-            <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-all duration-200 flex gap-1 z-10 scale-95 group-hover:scale-100">
+            <div className="absolute right-3 top-3 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200 flex gap-1 z-10 scale-100 md:scale-95 md:group-hover:scale-100">
                 {isTrash ? (
                     <Button
                         variant="ghost"
