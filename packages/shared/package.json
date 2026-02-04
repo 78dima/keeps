@@ -1,0 +1,21 @@
+{
+    "name": "@monokeep/shared",
+    "version": "0.0.1",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": "./dist/index.js",
+        "./dist/dto/user.dto": "./dist/dto/user.dto.js",
+        "./dist/dto/note.dto": "./dist/dto/note.dto.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.3"
+    },
+    "dependencies": {
+        "zod": "^3.24.1"
+    }
+}

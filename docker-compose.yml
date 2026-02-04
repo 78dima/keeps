@@ -1,0 +1,37 @@
+version: '3'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: monokeep-api
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/data
+    environment:
+      - DATABASE_URL=file:/data/prod.db
+      - JWT_SECRET=${JWT_SECRET:-supersecretkey}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      # Set explicit allowed origin for CORS if needed, or allow all in dev
+      - FRONTEND_URL=http://localhost:3000
+    command: >
+      sh -c "npx prisma db push --schema=./prisma/schema.prisma && node dist/src/main"
+    restart: always
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      # Pass build arguments for Next.js baking
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    container_name: monokeep-web
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+    # Note: NEXT_PUBLIC_API_URL is baked at build time. 
+    # If you change the domain, you must rebuild the image.
+    restart: always

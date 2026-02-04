@@ -1,0 +1,48 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  email           String   @unique
+  passwordHash    String
+  telegramChatId  String?
+  linkingCode     String?
+  notes           Note[]
+  tags            Tag[]
+}
+
+model Note {
+  id           Int       @id @default(autoincrement())
+  title        String
+  content      String
+  color        String?
+  isPinned     Boolean   @default(false)
+  isArchived   Boolean   @default(false)
+  isDeleted    Boolean   @default(false)
+  deletedAt    DateTime?
+  reminderDate DateTime?
+  isReminderSent Boolean   @default(false)
+  tags         Tag[]
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id])
+}
+
+model Tag {
+  id     Int    @id @default(autoincrement())
+  name   String
+  userId Int
+  user   User   @relation(fields: [userId], references: [id])
+  notes  Note[]
+
+  @@unique([name, userId])
+}
