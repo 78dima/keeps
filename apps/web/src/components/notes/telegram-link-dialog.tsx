@@ -63,7 +63,7 @@ export function TelegramLinkDialog() {
                             {code}
                         </div>
                         <p className="text-sm text-center">
-                            1. Open our Telegram bot: <b>@MonoKeepBot</b> (Example)<br />
+                            1. Open our Telegram bot: <b>@keep_notification_monokeep_bot</b><br />
                             2. Send the command below:
                         </p>
                         <div className="flex items-center gap-2 w-full">
