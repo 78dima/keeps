@@ -18,11 +18,14 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [tags, setTags] = useState<string[]>([]);
+    const [isCreating, setIsCreating] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
     const handleSave = useCallback(async () => {
         if (!title && !content) return;
+        if (isCreating) return;
 
+        setIsCreating(true);
         try {
             await api.post('/notes', {
                 title: title || 'Untitled',
@@ -35,8 +38,10 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
             onCreated();
         } catch (e: unknown) {
             console.error("Failed to create note", e);
+        } finally {
+            setIsCreating(false);
         }
-    }, [title, content, tags, onCreated]);
+    }, [title, content, tags, onCreated, isCreating]);
 
     // Close when clicking outside
     useEffect(() => {
@@ -95,6 +100,7 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
                         className="border-none shadow-none text-xl font-display font-bold px-0 focus-visible:ring-0 placeholder:text-muted-foreground/40 bg-transparent h-auto py-2"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
+                        disabled={isCreating}
                     />
                     <Textarea
                         placeholder="Take a note..."
@@ -102,6 +108,7 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
                         value={content}
                         onChange={(e) => setContent(e.target.value)}
                         autoFocus
+                        disabled={isCreating}
                     />
 
                     <div className="mt-2">
@@ -110,6 +117,7 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
                             onChange={setTags}
                             placeholder="Add tag..."
                             className="border-none p-0 bg-transparent text-sm"
+                            disabled={isCreating}
                         />
                     </div>
 
@@ -118,8 +126,10 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
                             {/* Actions placeholder - consistent aesthetic */}
                         </div>
                         <div className="flex gap-3">
-                            <Button size="sm" variant="ghost" className="font-medium hover:bg-black/5 rounded-full px-6 text-foreground/70" onClick={handleClose}>Close</Button>
-                            <Button size="sm" className="font-medium rounded-full px-6 bg-foreground text-background hover:bg-foreground/90 shadow-sm transition-all hover:shadow-md" onClick={handleCreate} disabled={!title && !content}>Create</Button>
+                            <Button size="sm" variant="ghost" className="font-medium hover:bg-black/5 rounded-full px-6 text-foreground/70" onClick={handleClose} disabled={isCreating}>Close</Button>
+                            <Button size="sm" className="font-medium rounded-full px-6 bg-foreground text-background hover:bg-foreground/90 shadow-sm transition-all hover:shadow-md" onClick={handleCreate} disabled={(!title && !content) || isCreating}>
+                                {isCreating ? 'Creating...' : 'Create'}
+                            </Button>
                         </div>
                     </div>
                 </CardContent>

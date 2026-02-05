@@ -10,12 +10,14 @@ interface TagInputProps {
     onChange: (tags: string[]) => void;
     placeholder?: string;
     className?: string;
+    disabled?: boolean;
 }
 
-export function TagInput({ value = [], onChange, placeholder = "Add tag...", className }: TagInputProps) {
+export function TagInput({ value = [], onChange, placeholder = "Add tag...", className, disabled }: TagInputProps) {
     const [inputValue, setInputValue] = useState('');
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (disabled) return;
         if (e.key === 'Enter') {
             e.preventDefault();
             addTag();
@@ -26,6 +28,7 @@ export function TagInput({ value = [], onChange, placeholder = "Add tag...", cla
     };
 
     const addTag = () => {
+        if (disabled) return;
         const trimmed = inputValue.trim();
         if (trimmed && !value.includes(trimmed)) {
             onChange([...value, trimmed]);
@@ -38,11 +41,16 @@ export function TagInput({ value = [], onChange, placeholder = "Add tag...", cla
     };
 
     const removeTag = (tagToRemove: string) => {
+        if (disabled) return;
         onChange(value.filter(tag => tag !== tagToRemove));
     };
 
     return (
-        <div className={cn("flex flex-wrap gap-2 items-center p-2 rounded-md border border-input bg-transparent focus-within:ring-1 focus-within:ring-ring", className)}>
+        <div className={cn(
+            "flex flex-wrap gap-2 items-center p-2 rounded-md border border-input bg-transparent focus-within:ring-1 focus-within:ring-ring",
+            disabled && "opacity-50 cursor-not-allowed",
+            className
+        )}>
             {value.map((tag) => (
                 <span
                     key={tag}
@@ -52,7 +60,8 @@ export function TagInput({ value = [], onChange, placeholder = "Add tag...", cla
                     <button
                         type="button"
                         onClick={() => removeTag(tag)}
-                        className="hover:text-red-500 focus:outline-none"
+                        className="hover:text-red-500 focus:outline-none disabled:cursor-not-allowed"
+                        disabled={disabled}
                     >
                         <X className="h-3 w-3" />
                     </button>
@@ -65,7 +74,8 @@ export function TagInput({ value = [], onChange, placeholder = "Add tag...", cla
                 onKeyDown={handleKeyDown}
                 onBlur={handleBlur}
                 placeholder={value.length === 0 ? placeholder : ""}
-                className="flex-1 border-none shadow-none focus-visible:ring-0 p-0 h-auto min-w-[80px] bg-transparent text-sm"
+                className="flex-1 border-none shadow-none focus-visible:ring-0 p-0 h-auto min-w-[80px] bg-transparent text-sm disabled:cursor-not-allowed"
+                disabled={disabled}
             />
         </div>
     );

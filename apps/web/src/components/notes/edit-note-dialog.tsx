@@ -23,6 +23,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
     const [color, setColor] = useState<string | null>(null);
     const [reminder, setReminder] = useState<string>('');
     const [tags, setTags] = useState<string[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         if (note) {
@@ -36,7 +37,8 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
     }, [note]);
 
     const handleSave = async () => {
-        if (!note) return;
+        if (!note || isSaving) return;
+        setIsSaving(true);
         try {
             await api.patch(`/notes/${note.id}`, {
                 title,
@@ -49,19 +51,22 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
             onClose();
         } catch {
             console.error("Failed to update note");
+        } finally {
+            setIsSaving(false);
         }
     };
 
     if (!note) return null;
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && !isSaving && onClose()}>
             <DialogContent className="sm:max-w-[700px] p-0 gap-0 rounded-[2rem] border-0 shadow-2xl bg-white/90 backdrop-blur-2xl ring-1 ring-white/20 transition-all duration-300 flex flex-col max-h-[90vh] [&>button]:hidden outline-none" style={{ backgroundColor: color ? `${color}F0` : undefined }}>
                 {/* Custom Close Button - Absolute Positioned */}
                 <div className="absolute right-4 top-4 z-50">
                     <button
                         onClick={onClose}
-                        className="p-2 rounded-full bg-black/5 hover:bg-black/10 transition-colors text-black/40 hover:text-black/80"
+                        disabled={isSaving}
+                        className="p-2 rounded-full bg-black/5 hover:bg-black/10 transition-colors text-black/40 hover:text-black/80 disabled:opacity-50"
                     >
                         <span className="sr-only">Close</span>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
@@ -77,6 +82,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                             onChange={(e) => setTitle(e.target.value)}
                             placeholder="Title"
                             className="border-none shadow-none text-3xl font-display font-bold tracking-tight px-0 py-1 h-auto focus-visible:ring-0 bg-transparent placeholder:text-black/20 text-foreground/90 w-full"
+                            disabled={isSaving}
                         />
                     </DialogHeader>
 
@@ -87,6 +93,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                             onChange={(e) => setContent(e.target.value)}
                             placeholder="Note"
                             className="border-none shadow-none resize-none p-0 min-h-[150px] focus-visible:ring-0 bg-transparent text-lg font-sans text-foreground/80 leading-relaxed placeholder:text-black/30 scrollbar-hide w-full"
+                            disabled={isSaving}
                         />
 
                         <div className="mt-6">
@@ -95,6 +102,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                                 onChange={setTags}
                                 placeholder="+ Add tag"
                                 className="border-none p-0 bg-transparent text-sm placeholder:text-black/40"
+                                disabled={isSaving}
                             />
                         </div>
 
@@ -110,6 +118,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                                     value={reminder}
                                     onChange={(e) => setReminder(e.target.value)}
                                     className="w-fit h-auto text-xs bg-transparent border-none shadow-none focus-visible:ring-0 p-0 text-foreground/80 font-medium font-mono"
+                                    disabled={isSaving}
                                 />
                             </div>
 
@@ -120,7 +129,8 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                                             key={c}
                                             className={`w-9 h-9 flex-shrink-0 rounded-full cursor-pointer border-2 border-white/50 transition-all duration-200 hover:scale-110 shadow-sm ${color === c ? 'ring-2 ring-black/20 scale-110 shadow-md' : 'hover:shadow-md'}`}
                                             style={{ backgroundColor: c }}
-                                            onClick={() => setColor(c)}
+                                            onClick={() => !isSaving && setColor(c)}
+                                            disabled={isSaving}
                                             aria-label={`Select color ${c}`}
                                         />
                                     ))}
@@ -135,14 +145,16 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                             variant="ghost"
                             className="rounded-full px-6 py-2 h-auto hover:bg-black/5 text-black/60 hover:text-foreground font-medium transition-all"
                             onClick={onClose}
+                            disabled={isSaving}
                         >
                             Cancel
                         </Button>
                         <Button
                             className="rounded-full px-8 py-2 h-auto bg-foreground text-background hover:bg-foreground/90 font-medium shadow-lg shadow-black/5 transition-all hover:scale-105 active:scale-95"
                             onClick={handleSave}
+                            disabled={isSaving}
                         >
-                            Save
+                            {isSaving ? 'Saving...' : 'Save'}
                         </Button>
                     </DialogFooter>
                 </div>

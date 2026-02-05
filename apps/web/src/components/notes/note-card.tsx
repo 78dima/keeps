@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { NoteResponseDto } from '@monokeep/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,9 +19,22 @@ interface NoteCardProps {
 }
 
 export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onRestore }: NoteCardProps) {
+    const [actionStatus, setActionStatus] = useState<'pinning' | 'deleting' | 'restoring' | 'updating' | null>(null);
+
     // Map color to tailwind classes if needed, or use inline style for custom hex
     // Requirement allows "HEX string".
     const bgStyle = note.color ? { backgroundColor: note.color } : {};
+
+    const handleAction = async (e: React.MouseEvent, type: 'pinning' | 'deleting' | 'restoring' | 'updating', action: () => Promise<void> | void) => {
+        e.stopPropagation();
+        if (actionStatus) return; // Prevent concurrent actions
+        setActionStatus(type);
+        try {
+            await action();
+        } finally {
+            setActionStatus(null);
+        }
+    };
 
     return (
         <Card
@@ -37,19 +51,29 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 hover:bg-white/80 hover:shadow-sm rounded-full backdrop-blur-sm transition-all"
-                        onClick={(e) => { e.stopPropagation(); onRestore?.(note); }}
+                        onClick={(e) => handleAction(e, 'restoring', () => onRestore?.(note))}
+                        disabled={!!actionStatus}
                         title="Restore"
                     >
-                        <RotateCcw className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                        {actionStatus === 'restoring' ? (
+                            <div className="h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                        ) : (
+                            <RotateCcw className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                        )}
                     </Button>
                 ) : (
                     <Button
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 hover:bg-white/80 hover:shadow-sm rounded-full backdrop-blur-sm transition-all"
-                        onClick={(e) => { e.stopPropagation(); onPin(note); }}
+                        onClick={(e) => handleAction(e, 'pinning', () => onPin(note))}
+                        disabled={!!actionStatus}
                     >
-                        <Pin className={cn("h-4 w-4", note.isPinned ? "fill-primary text-primary" : "text-muted-foreground")} />
+                        {actionStatus === 'pinning' ? (
+                            <div className="h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                        ) : (
+                            <Pin className={cn("h-4 w-4", note.isPinned ? "fill-primary text-primary" : "text-muted-foreground")} />
+                        )}
                     </Button>
                 )}
 
@@ -57,10 +81,15 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 hover:bg-white/80 hover:shadow-sm rounded-full backdrop-blur-sm hover:text-destructive transition-all"
-                    onClick={(e) => { e.stopPropagation(); onDelete(note); }}
+                    onClick={(e) => handleAction(e, 'deleting', () => onDelete(note))}
+                    disabled={!!actionStatus}
                     title={isTrash ? "Delete Forever" : "Move to Trash"}
                 >
-                    <Trash className="h-4 w-4" />
+                    {actionStatus === 'deleting' ? (
+                        <div className="h-4 w-4 rounded-full border-2 border-destructive/30 border-t-destructive animate-spin" />
+                    ) : (
+                        <Trash className="h-4 w-4" />
+                    )}
                 </Button>
             </div>
 
@@ -78,10 +107,14 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
                     {note.isReminderSent ? (
                         <div
                             className="text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-sm flex items-center gap-1 cursor-pointer hover:bg-green-100 transition-colors"
-                            onClick={(e) => { e.stopPropagation(); onUpdate?.({ ...note, isReminderSent: false }); }}
+                            onClick={(e) => handleAction(e, 'updating', () => onUpdate?.({ ...note, isReminderSent: false }))}
                             title="Click to mark as read"
                         >
-                            <CheckCheck className="h-3 w-3" />
+                            {actionStatus === 'updating' ? (
+                                <div className="h-3 w-3 rounded-full border-2 border-green-700/30 border-t-green-700 animate-spin" />
+                            ) : (
+                                <CheckCheck className="h-3 w-3" />
+                            )}
                             <span>Уведомление отправлено</span>
                         </div>
                     ) : note.reminderDate && (
