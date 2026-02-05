@@ -79,22 +79,59 @@ export default function DashboardPage() {
                 onUpdate={fetchNotes}
             />
 
-            <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
-                {notes.map(note => (
-                    <div key={note.id} className="break-inside-avoid">
-                        <NoteCard
-                            note={note}
-                            onEdit={(n) => openEditModal(n)}
-                            onPin={handlePin}
-                            onDelete={handleDelete}
-                            onUpdate={handleUpdate}
-                        />
-                    </div>
-                ))}
-            </div>
-            {notes.length === 0 && (
+            {notes.length === 0 ? (
                 <div className="text-center text-muted-foreground mt-20">
                     <p>No notes found</p>
+                </div>
+            ) : (
+                <div className="space-y-12">
+                    {notes.some(n => n.isPinned) && (
+                        <section>
+                            <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase mb-4 pl-1">
+                                Pinned
+                            </h2>
+                            <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
+                                {notes
+                                    .filter(n => n.isPinned)
+                                    .map(note => (
+                                        <div key={note.id} className="break-inside-avoid">
+                                            <NoteCard
+                                                note={note}
+                                                onEdit={(n) => openEditModal(n)}
+                                                onPin={handlePin}
+                                                onDelete={handleDelete}
+                                                onUpdate={handleUpdate}
+                                            />
+                                        </div>
+                                    ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {notes.some(n => !n.isPinned) && (
+                        <section>
+                            {notes.some(n => n.isPinned) && (
+                                <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase mb-4 pl-1">
+                                    Others
+                                </h2>
+                            )}
+                            <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
+                                {notes
+                                    .filter(n => !n.isPinned)
+                                    .map(note => (
+                                        <div key={note.id} className="break-inside-avoid">
+                                            <NoteCard
+                                                note={note}
+                                                onEdit={(n) => openEditModal(n)}
+                                                onPin={handlePin}
+                                                onDelete={handleDelete}
+                                                onUpdate={handleUpdate}
+                                            />
+                                        </div>
+                                    ))}
+                            </div>
+                        </section>
+                    )}
                 </div>
             )}
         </div>
