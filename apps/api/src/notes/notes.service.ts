@@ -30,21 +30,28 @@ export class NotesService {
     }
 
     async findAll(userId: number, search?: string) {
-        return this.prisma.note.findMany({
+        const term = search?.trim().toLowerCase();
+
+        const notes = await this.prisma.note.findMany({
             where: {
                 userId,
                 isDeleted: false,
                 isArchived: false, // Default to active notes
-                OR: search
-                    ? [
-                        { title: { contains: search } },
-                        { content: { contains: search } },
-                        { tags: { some: { name: { contains: search } } } },
-                    ]
-                    : undefined,
             },
             orderBy: { id: 'desc' },
             include: { tags: true },
+        });
+
+        if (!term) {
+            return notes;
+        }
+
+        return notes.filter(note => {
+            return (
+                note.title.toLowerCase().includes(term) ||
+                note.content.toLowerCase().includes(term) ||
+                note.tags.some(tag => tag.name.toLowerCase().includes(term))
+            );
         });
     }
 
