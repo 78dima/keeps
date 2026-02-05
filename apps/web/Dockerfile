@@ -7,6 +7,11 @@ RUN npm install -g turbo
 COPY . .
 RUN npm install
 RUN npx turbo run db:generate
+# 1. Принимаем аргумент из docker-compose (раздел args)
+ARG NEXT_PUBLIC_API_URL
+# 2. Устанавливаем его как переменную окружения для процесса сборки
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN npx turbo run build --filter=@monokeep/web...
 
 FROM base AS runner
