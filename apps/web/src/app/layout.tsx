@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 import { Toaster } from "@/components/ui/toaster";
+import { PushNotificationManager } from "@/components/pwa/PushNotificationManager";
 
 export const metadata: Metadata = {
   title: "MonoKeep",
@@ -31,6 +32,7 @@ export default function RootLayout({
       >
         {children}
         <Toaster />
+        <PushNotificationManager />
       </body>
     </html>
   );

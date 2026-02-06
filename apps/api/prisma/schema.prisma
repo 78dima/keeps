@@ -17,6 +17,7 @@ model User {
   passwordHash    String
   telegramChatId  String?
   linkingCode     String?
+  pushSubscription String? // Storing JSON stringified subscription
   notes           Note[]
   tags            Tag[]
 }

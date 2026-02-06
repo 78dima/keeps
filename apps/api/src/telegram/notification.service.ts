@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from './telegram.service';
+import { WebPushService } from '../notifications/web-push.service';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -16,46 +17,58 @@ export class NotificationService {
     constructor(
         private prisma: PrismaService,
         private telegram: TelegramService,
+        private webPush: WebPushService,
     ) { }
 
     @Cron('* * * * *')
     async handleNotifications() {
-        const now = new Date(); // DB stores absolute time, simple comparison works
-        console.log(now);
-        // Find notes that are due, haven't been sent, and belong to users with Telegram setup
+        const now = new Date();
         const notes = await this.prisma.note.findMany({
             where: {
-                reminderDate: {
-                    lte: now,
-                },
+                reminderDate: { lte: now },
                 isReminderSent: false,
-                isDeleted: false, // Ensure we don't notify for trashed notes
+                isDeleted: false,
                 user: {
-                    telegramChatId: {
-                        not: null
-                    }
+                    OR: [
+                        { telegramChatId: { not: null } },
+                        { pushSubscription: { not: null } }
+                    ]
                 }
             },
-            include: {
-                user: true
-            }
+            include: { user: true }
         });
-
-        console.log(notes);
 
         if (notes.length > 0) {
             this.logger.log(`Found ${notes.length} pending notifications.`);
         }
 
         for (const note of notes) {
+            let sent = false;
             try {
-                if (note.user.telegramChatId) {
-                    await this.telegram.sendNotification(
-                        note.userId,
-                        `🔔 <b>Напоминание:</b> ${note.title}\n\n${note.content.substring(0, 200)}`
-                    );
+                const message = `🔔 <b>Напоминание:</b> ${note.title}\n\n${note.content.substring(0, 200)}`;
+                const plainMessage = `🔔 Напоминание: ${note.title}\n\n${note.content.substring(0, 200)}`;
 
-                    // Mark as sent to prevent loops
+                if (note.user.telegramChatId) {
+                    await this.telegram.sendNotification(note.userId, message);
+                    sent = true;
+                }
+
+                if (note.user.pushSubscription) {
+                    try {
+                        const sub = JSON.parse(note.user.pushSubscription);
+                        await this.webPush.sendNotification(sub, {
+                            title: `Напоминание: ${note.title}`,
+                            body: note.content.substring(0, 200),
+                            url: `/note/${note.id}` // actionable url
+                        });
+                        sent = true;
+                    } catch (e) {
+                        this.logger.error(`Failed to send web push for note ${note.id}`, e);
+                        // If push fails (e.g. expired), we might want to remove subscription, but for now just log
+                    }
+                }
+
+                if (sent) {
                     await this.prisma.note.update({
                         where: { id: note.id },
                         data: { isReminderSent: true }
@@ -64,7 +77,6 @@ export class NotificationService {
                 }
             } catch (e) {
                 this.logger.error(`Failed to process notification for note ${note.id}`, e);
-                // We do NOT stop the loop, just log error
             }
         }
     }

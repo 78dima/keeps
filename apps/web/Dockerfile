@@ -11,6 +11,8 @@ RUN npx turbo run db:generate
 ARG NEXT_PUBLIC_API_URL
 # 2. Устанавливаем его как переменную окружения для процесса сборки
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY
 
 RUN npx turbo run build --filter=@monokeep/web...
 

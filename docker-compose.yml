@@ -17,6 +17,8 @@ services:
       - DATABASE_URL=file:/data/prod.db
       - JWT_SECRET=${JWT_SECRET:-supersecretkey}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
       # Set explicit allowed origin for CORS if needed, or allow all in dev
       - FRONTEND_URL=https://monokeep.cloudpub.ru
     command: >
@@ -30,12 +32,14 @@ services:
       # Pass build arguments for Next.js baking
       args:
         NEXT_PUBLIC_API_URL: https://apimonokeep.cloudpub.ru
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
     container_name: monokeep-web
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
       - NEXT_PUBLIC_API_URL=https://apimonokeep.cloudpub.ru
+      - NEXT_PUBLIC_VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
     # Note: NEXT_PUBLIC_API_URL is baked at build time. 
     # If you change the domain, you must rebuild the image.
     restart: always

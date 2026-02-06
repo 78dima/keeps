@@ -2,7 +2,7 @@ node_modules
 # Keep environment variables out of version control
 .env
 
-/generated/prisma
+apps/api/src/generated
 .agent
 .turbo
 data
@@ -27,3 +27,12 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 Thumbs.db
+
+# --- PWA ---
+apps/web/public/sw.js
+apps/web/public/sw.js.map
+apps/web/public/workbox-*.js
+apps/web/public/workbox-*.js.map
+apps/web/public/worker-*.js
+apps/web/public/worker-*.js.map
+apps/web/public/swe-worker-*.js
