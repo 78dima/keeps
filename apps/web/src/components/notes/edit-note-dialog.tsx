@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { CalendarIcon } from 'lucide-react';
-import api from '@/lib/api';
 import { TagInput } from '@/components/ui/tag-input';
+import { useNotesStore } from '@/store/useNotesStore';
 
 interface EditNoteDialogProps {
     note: NoteResponseDto | null;
@@ -36,15 +36,19 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
         }
     }, [note]);
 
+
+    const { updateNote } = useNotesStore();
+
     const handleSave = async () => {
         if (!note || isSaving) return;
         setIsSaving(true);
         try {
-            await api.patch(`/notes/${note.id}`, {
+            await updateNote({
+                id: note.id,
                 title,
                 content,
                 color,
-                reminderDate: reminder ? new Date(reminder).toISOString() : null,
+                reminderDate: reminder ? new Date(reminder) : null,
                 tags: tags
             });
             onUpdate();

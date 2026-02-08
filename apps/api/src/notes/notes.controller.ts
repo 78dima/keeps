@@ -53,21 +53,21 @@ export class NotesController {
     }
 
     @Get(':id')
-    findOne(@Request() req: any, @Param('id', ParseIntPipe) id: number) {
+    findOne(@Request() req: any, @Param('id') id: string) {
         return this.notesService.findOne(req.user.id, id);
     }
 
     @Patch(':id')
     update(
         @Request() req: any,
-        @Param('id', ParseIntPipe) id: number,
+        @Param('id') id: string,
         @Body(new ZodValidationPipe(noteDto.UpdateNoteSchema)) dto: noteDto.UpdateNoteDto,
     ) {
         return this.notesService.update(req.user.id, id, dto);
     }
 
     @Delete(':id')
-    remove(@Request() req: any, @Param('id', ParseIntPipe) id: number) {
+    remove(@Request() req: any, @Param('id') id: string) {
         // If it's already in trash, this might mean permanent delete
         // But per requirements, "complete delete only from trash"
         // For now we assume this endpoint can handle both or separate "soft delete" logic

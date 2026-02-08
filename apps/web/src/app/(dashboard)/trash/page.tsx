@@ -9,7 +9,7 @@ import { useNotesStore } from '@/store/useNotesStore';
 export default function TrashPage() {
     const {
         notes,
-        fetchTrashNotes,
+        setViewMode,
         restoreNote,
         deleteNoteForever
     } = useNotesStore();
@@ -17,8 +17,8 @@ export default function TrashPage() {
     const { toast } = useToast();
 
     useEffect(() => {
-        fetchTrashNotes();
-    }, [fetchTrashNotes]);
+        setViewMode('trash');
+    }, [setViewMode]);
 
     const handleRestore = async (note: NoteResponseDto) => {
         try {

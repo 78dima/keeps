@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import api from '@/lib/api';
 import { CreateNote } from '@/components/notes/create-note';
 import { NoteCard } from '@/components/notes/note-card';
 import { useToast } from '@/hooks/use-toast';
@@ -13,12 +12,14 @@ import { useNotesStore } from '@/store/useNotesStore';
 export default function DashboardPage() {
     const {
         notes,
-        fetchNotes,
         selectedNote,
         isEditModalOpen,
         openEditModal,
         closeEditModal,
-        deleteNote
+        deleteNote,
+        updateNote,
+        setViewMode,
+        isLoading
     } = useNotesStore();
 
     const { toast } = useToast();
@@ -28,55 +29,56 @@ export default function DashboardPage() {
 
     useEffect(() => {
         setSearchQuery(search);
-        fetchNotes();
-    }, [search, fetchNotes, setSearchQuery]);
+        setViewMode('active');
+    }, [search, setViewMode, setSearchQuery]);
+
+    const handleUpdate = async (note: NoteResponseDto) => {
+        try {
+            await updateNote({
+                ...note,
+                tags: note.tags?.map(t => t.name)
+            });
+        } catch (error) {
+            console.error("Failed to update note", error);
+            toast({ variant: "destructive", title: "Failed to update note" });
+        }
+    };
 
     const handlePin = async (note: NoteResponseDto) => {
         try {
-            await api.patch(`/notes/${note.id}`, { isPinned: !note.isPinned });
-            fetchNotes();
-            useNotesStore.getState().triggerRefresh(); // Refresh sidebar
-        } catch {
-            toast({ variant: "destructive", title: "Failed to update pin" });
+            await updateNote({
+                ...note,
+                isPinned: !note.isPinned,
+                tags: note.tags?.map(t => t.name)
+            });
+        } catch (error) {
+            console.error("Failed to pin note", error);
+            toast({ variant: "destructive", title: "Failed to pin note" });
         }
     };
 
     const handleDelete = async (note: NoteResponseDto) => {
         try {
-            await api.patch(`/notes/${note.id}`, { isDeleted: true });
-            deleteNote(note.id); // Optimistic update in store
+            await deleteNote(note.id);
             toast({ title: "Note moved to trash" });
         } catch {
             toast({ variant: "destructive", title: "Failed to delete" });
         }
     };
 
-    const handleUpdate = async (note: NoteResponseDto) => {
-        try {
-            // Optimistic update
-            const updated = { ...note };
-            useNotesStore.getState().updateNote(updated);
-
-            await api.patch(`/notes/${note.id}`, {
-                isReminderSent: note.isReminderSent,
-                reminderDate: note.reminderDate // In case we need to update date too
-            });
-            fetchNotes();
-        } catch {
-            toast({ variant: "destructive", title: "Failed to update note" });
-            fetchNotes(); // Revert on error
-        }
-    };
+    if (isLoading && notes.length === 0) {
+        return <div className="text-center mt-20">Loading notes...</div>;
+    }
 
     return (
         <div className="mx-auto w-full max-w-5xl">
-            <CreateNote onCreated={fetchNotes} />
+            <CreateNote onCreated={() => { }} />
 
             <EditNoteDialog
                 note={selectedNote}
                 isOpen={isEditModalOpen}
                 onClose={closeEditModal}
-                onUpdate={fetchNotes}
+                onUpdate={() => { }}
             />
 
             {notes.length === 0 ? (

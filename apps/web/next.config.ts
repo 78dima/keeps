@@ -16,7 +16,8 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  swcMinify: false,
+  reactStrictMode: true,
+  transpilePackages: ["@monokeep/ui"],
 };
 
 export default withPWA(nextConfig);

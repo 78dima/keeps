@@ -130,13 +130,14 @@ export function MobileSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: (
 }
 
 
+
 function PinnedNotesList({ onItemClick }: { onItemClick?: () => void }) {
-    const { notes, fetchNotes, hasMore, isLoading } = usePinnedNotes();
+    const { notes, init } = usePinnedNotes();
     const { openEditModal } = useNotesStore();
 
     useEffect(() => {
-        fetchNotes(true);
-    }, [fetchNotes]);
+        init();
+    }, [init]);
 
     if (notes.length === 0) return null;
 
@@ -162,17 +163,7 @@ function PinnedNotesList({ onItemClick }: { onItemClick?: () => void }) {
                     </div>
                 ))}
 
-                {hasMore && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full text-xs h-8 mt-2"
-                        onClick={() => fetchNotes()}
-                        disabled={isLoading}
-                    >
-                        {isLoading ? 'Loading...' : 'Load More'}
-                    </Button>
-                )}
+
             </div>
         </div>
     );

@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { NotesModule } from './notes/notes.module';
 import { TelegramModule } from './telegram/telegram.module';
+import { SyncModule } from './sync/sync.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { TelegramModule } from './telegram/telegram.module';
     PrismaModule,
     NotesModule,
     TelegramModule,
+    SyncModule,
   ],
   controllers: [AppController],
   providers: [AppService],

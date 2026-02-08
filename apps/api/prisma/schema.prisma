@@ -23,27 +23,38 @@ model User {
 }
 
 model Note {
-  id           Int       @id @default(autoincrement())
+  id           String    @id @default(uuid())
   title        String
   content      String
   color        String?
   isPinned     Boolean   @default(false)
   isArchived   Boolean   @default(false)
-  isDeleted    Boolean   @default(false)
+  isDeleted    Boolean   @default(false) // Soft delete for trash bin (UI)
+  syncDeleted  Boolean   @default(false) // Soft delete for sync (Flag to delete from other clients)
   deletedAt    DateTime?
   reminderDate DateTime?
   isReminderSent Boolean   @default(false)
+  
+  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime  @default(now())
+
   tags         Tag[]
   userId       Int
   user         User      @relation(fields: [userId], references: [id])
+
+  @@index([updatedAt])
 }
 
 model Tag {
-  id     Int    @id @default(autoincrement())
+  id     String @id @default(uuid())
   name   String
   userId Int
   user   User   @relation(fields: [userId], references: [id])
   notes  Note[]
 
+  updatedAt DateTime @updatedAt
+  syncDeleted   Boolean  @default(false)
+
   @@unique([name, userId])
+  @@index([updatedAt])
 }

@@ -1,59 +1,71 @@
 import { create } from 'zustand';
-import api from '@/lib/api';
 import { NoteResponseDto } from '@monokeep/shared';
+import { getDatabase, NoteDocType } from '@/lib/db';
+import { Subscription } from 'rxjs';
 
 interface PinnedNotesState {
     notes: NoteResponseDto[];
-    offset: number;
-    limit: number;
-    hasMore: boolean;
     isLoading: boolean;
-    fetchNotes: (reset?: boolean) => Promise<void>;
-    addNote: (note: NoteResponseDto) => void;
-    removeNote: (noteId: number) => void;
-    updateNote: (note: NoteResponseDto) => void;
+    init: () => Promise<void>;
 }
 
-import { useNotesStore } from '@/store/useNotesStore';
+let sub: Subscription | null = null;
 
-export const usePinnedNotes = create<PinnedNotesState>((set, get) => ({
+export const usePinnedNotes = create<PinnedNotesState>((set) => ({
     notes: [],
-    offset: 0,
-    limit: 6,
-    hasMore: true,
-    isLoading: false,
-    fetchNotes: async (reset = false) => {
-        set({ isLoading: true });
-        const { offset, limit, notes } = get();
-        const currentOffset = reset ? 0 : offset;
+    isLoading: true,
+    init: async () => {
+        if (typeof window === 'undefined') return;
 
+        // Extract User ID
+        let userId = 0;
         try {
-            // Add timestamp/random to avoid cache if needed, though usually not needed with axios unless configured otherwise
-            const res = await api.get<NoteResponseDto[]>(`/notes/pinned?skip=${currentOffset}&take=${limit}&t=${Date.now()}`);
-            const newNotes = res.data;
-
-            set({
-                notes: reset ? newNotes : [...notes, ...newNotes],
-                offset: currentOffset + newNotes.length,
-                hasMore: newNotes.length === limit,
-                isLoading: false,
-            });
-        } catch (error) {
-            console.error('Failed to fetch pinned notes', error);
-            set({ isLoading: false });
+            const token = localStorage.getItem('token');
+            if (token) {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function (c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                const payload = JSON.parse(jsonPayload);
+                if (payload.sub) {
+                    userId = payload.sub;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to parse token for userId', e);
         }
-    },
-    addNote: (note) => set((state) => ({ notes: [note, ...state.notes] })),
-    removeNote: (id) => set((state) => ({ notes: state.notes.filter(n => n.id !== id) })),
-    updateNote: (note) => set((state) => ({
-        notes: state.notes.map(n => n.id === note.id ? note : n).filter(n => n.isPinned)
-    })),
-}));
 
-// Subscription to global store updates
-// Subscription to global store updates
-useNotesStore.subscribe((state, prevState) => {
-    if (state.refreshTrigger !== prevState.refreshTrigger) {
-        usePinnedNotes.getState().fetchNotes(true);
+        const db = await getDatabase();
+
+        if (sub) sub.unsubscribe();
+
+        const query = db.notes.find({
+            selector: {
+                userId: userId,
+                isPinned: true,
+                isDeleted: false,
+                isArchived: false,
+                syncDeleted: { $ne: true }
+            },
+            sort: [{ updatedAt: 'desc' }]
+        });
+
+        sub = query.$.subscribe((docs: NoteDocType[]) => {
+            const mapped = docs.map((doc: any) => {
+                // @ts-ignore
+                const data = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+                return {
+                    ...data,
+                    updatedAt: new Date(data.updatedAt),
+                    createdAt: new Date(data.createdAt || new Date()),
+                    deletedAt: data.deletedAt ? new Date(data.deletedAt) : null,
+                    reminderDate: data.reminderDate ? new Date(data.reminderDate) : null,
+                    tags: data.tags || []
+                };
+            }) as unknown as NoteResponseDto[];
+
+            set({ notes: mapped, isLoading: false });
+        });
     }
-});
+}));

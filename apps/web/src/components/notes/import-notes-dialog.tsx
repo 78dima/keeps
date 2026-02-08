@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Upload, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import api from '@/lib/api';
 import { useNotesStore } from '@/store/useNotesStore';
 
 export function ImportNotesDialog() {
@@ -13,7 +12,7 @@ export function ImportNotesDialog() {
     const [isLoading, setIsLoading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { toast } = useToast();
-    const { fetchNotes } = useNotesStore();
+    const { importNotes } = useNotesStore();
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -49,15 +48,14 @@ export function ImportNotesDialog() {
                 return;
             }
 
-            // Send to backend
-            await api.post('/notes/import/keep', allNotes);
+            // Process locally and insert into RxDB
+            await importNotes(allNotes);
 
             toast({
                 title: "Import success",
                 description: `Imported ${allNotes.length} notes.${errorCount > 0 ? ` Failed to parse ${errorCount} files.` : ''}`
             });
 
-            fetchNotes();
             setIsOpen(false);
         } catch (error) {
             console.error(error);

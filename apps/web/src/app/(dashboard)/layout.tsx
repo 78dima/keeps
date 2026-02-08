@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
 
 import { useDebounce } from '@/hooks/use-debounce';
+import { useNotesStore } from '@/store/useNotesStore';
 
 export default function DashboardLayout({
     children,
@@ -19,9 +20,18 @@ export default function DashboardLayout({
 }) {
     const router = useRouter();
     const [isAuthChecking, setIsAuthChecking] = useState(true);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [localSearchQuery, setLocalSearchQuery] = useState(''); // Rename to local to avoid conflict
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-    const debouncedSearchQuery = useDebounce(searchQuery, 300);
+    const debouncedSearchQuery = useDebounce(localSearchQuery, 300);
+
+    // Store actions
+    const initStore = useNotesStore((state) => state.init);
+    const setSearchQueryStore = useNotesStore((state) => state.setSearchQuery);
+
+    useEffect(() => {
+        // Init RxDB
+        initStore();
+    }, [initStore]);
 
     useEffect(() => {
         // Basic Client-Side Auth Check
@@ -38,14 +48,19 @@ export default function DashboardLayout({
         const params = new URLSearchParams(window.location.search);
         const search = params.get('search');
         if (search) {
-            setSearchQuery(search);
+            setLocalSearchQuery(search);
+            setSearchQueryStore(search); // Init store with search
         }
-    }, []);
+    }, [setSearchQueryStore]);
 
-    // Sync debounced query to URL
+    // Sync debounced query to URL and Store
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const currentSearch = params.get('search') || '';
+
+        // Update Store
+        setSearchQueryStore(debouncedSearchQuery);
+
         if (debouncedSearchQuery !== currentSearch) {
             if (debouncedSearchQuery) {
                 params.set('search', debouncedSearchQuery);
@@ -54,7 +69,7 @@ export default function DashboardLayout({
             }
             router.replace(`/?${params.toString()}`);
         }
-    }, [debouncedSearchQuery, router]);
+    }, [debouncedSearchQuery, router, setSearchQueryStore]);
 
 
     const handleLogout = () => {
@@ -62,9 +77,7 @@ export default function DashboardLayout({
         router.push('/login');
     };
 
-    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setSearchQuery(e.target.value);
-    };
+
 
     if (isAuthChecking) {
         return <div className="flex h-screen items-center justify-center">Loading...</div>;
@@ -90,10 +103,10 @@ export default function DashboardLayout({
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                             <Input
                                 type="search"
-                                value={searchQuery}
+                                value={localSearchQuery}
                                 placeholder="Search notes..."
                                 className="w-full appearance-none bg-black/5 border-transparent pl-10 h-10 rounded-full shadow-none md:w-2/3 lg:w-full focus-visible:ring-1 focus-visible:ring-primary focus-visible:bg-white transition-all placeholder:text-muted-foreground/60 font-medium"
-                                onChange={handleSearch}
+                                onChange={(e) => setLocalSearchQuery(e.target.value)}
                             />
                         </div>
                     </div>

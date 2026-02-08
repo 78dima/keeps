@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus } from 'lucide-react';
-import api from '@/lib/api';
+import { useNotesStore } from '@/store/useNotesStore';
 import { TagInput } from '@/components/ui/tag-input';
 
 interface CreateNoteProps {
@@ -14,6 +14,7 @@ interface CreateNoteProps {
 }
 
 export function CreateNote({ onCreated }: CreateNoteProps) {
+    const { createNote } = useNotesStore();
     const [isExpanded, setIsExpanded] = useState(false);
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
@@ -27,10 +28,12 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
 
         setIsCreating(true);
         try {
-            await api.post('/notes', {
-                title: title || 'Untitled',
-                content: content,
-                tags: tags
+            await createNote({
+                title,
+                content: content || '',
+                tags,
+                isPinned: false,
+                isArchived: false
             });
             setTitle('');
             setContent('');
@@ -41,7 +44,7 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
         } finally {
             setIsCreating(false);
         }
-    }, [title, content, tags, onCreated, isCreating]);
+    }, [title, content, tags, onCreated, isCreating, createNote]);
 
     // Close when clicking outside
     useEffect(() => {

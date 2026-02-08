@@ -81,7 +81,7 @@ export class NotesService {
         });
     }
 
-    async findOne(userId: number, id: number) {
+    async findOne(userId: number, id: string) {
         const note = await this.prisma.note.findFirst({
             where: { id, userId },
             include: { tags: true },
@@ -90,7 +90,7 @@ export class NotesService {
         return note;
     }
 
-    async update(userId: number, id: number, dto: UpdateNoteDto) {
+    async update(userId: number, id: string, dto: UpdateNoteDto) {
         await this.findOne(userId, id); // check ownership
 
         const { tags, id: _id, ...rest } = dto as any;
@@ -113,7 +113,7 @@ export class NotesService {
         });
     }
 
-    async moveToTrash(userId: number, id: number) {
+    async moveToTrash(userId: number, id: string) {
         await this.findOne(userId, id);
         return this.prisma.note.update({
             where: { id },
@@ -125,7 +125,7 @@ export class NotesService {
         });
     }
 
-    async delete(userId: number, id: number) {
+    async delete(userId: number, id: string) {
         const note = await this.findOne(userId, id);
         if (!note.isDeleted) {
             throw new BadRequestException('Note must be in trash to be permanently deleted');
