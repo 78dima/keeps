@@ -1,114 +1,181 @@
 import { replicateRxCollection } from 'rxdb/plugins/replication';
-import { MyDatabaseCollections } from './db';
-import api from './api';
+import { MyDatabaseCollections, NoteDocType, TagDocType } from './db';
+import { supabase } from './supabase';
+import { RxDocumentData } from 'rxdb';
+import { RealtimeChannel } from '@supabase/supabase-js';
+
+// --- HELPER: Field Mapping ---
+
+const toSnakeCase = (str: string) => str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+const toCamelCase = (str: string) => str.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+
+const mapToSupabase = (doc: Record<string, unknown>, userId?: string) => {
+    const newDoc: Record<string, unknown> = {};
+    Object.keys(doc).forEach(key => {
+        // 1. Пропускаем служебные поля RxDB (_rev, _deleted, _attachments)
+        if (key.startsWith('_')) return;
+
+        // 2. Маппим ключ
+        newDoc[toSnakeCase(key)] = doc[key];
+    });
+
+    // 3. ПРИНУДИТЕЛЬНО ставим user_id, если он передан
+    // Это гарантирует, что мы не запишем null и не нарушим RLS
+    if (userId) {
+        newDoc.user_id = userId;
+    }
+
+    // Очищаем потенциально лишнее поле userId (camelCase), так как мы задали user_id
+    delete newDoc.userId;
+
+    return newDoc;
+};
+
+const mapFromSupabase = (row: Record<string, unknown>) => {
+    const newDoc: Record<string, unknown> = {};
+    Object.keys(row).forEach(key => {
+        newDoc[toCamelCase(key)] = row[key];
+    });
+    return newDoc;
+};
+
+// --- REPLICATION ---
+
+let realtimeChannel: RealtimeChannel | null = null;
 
 export const replicateCollections = async (collections: MyDatabaseCollections) => {
+    const session = await supabase.auth.getSession();
+    const user = session.data.session?.user;
+    const userId = user?.id;
+
+    if (!userId) {
+        console.warn("Replication skipped: User not logged in");
+        return;
+    }
 
     // --- NOTES REPLICATION ---
-    await replicateRxCollection({
+    const notesReplicationState = await replicateRxCollection({
         collection: collections.notes,
-        replicationIdentifier: 'notes-replication-v1',
+        replicationIdentifier: 'notes-supabase-v1',
         pull: {
-            handler: async (checkpoint: any, batchSize: number) => {
-                const updatedMin = checkpoint;
-                const limit = batchSize;
-                try {
-                    const response = await api.get('/sync/pull', {
-                        params: {
-                            collection: 'notes',
-                            checkpoint: updatedMin,
-                            limit
-                        }
-                    });
-                    const data = response.data;
-                    return {
-                        documents: data.documents,
-                        checkpoint: data.checkpoint
-                    };
-                } catch (err) {
-                    console.error('Pull Error Note:', err);
-                    throw err; // Retry logic relies on throwing
-                }
+            handler: async (checkpoint: unknown, batchSize: number) => {
+                const updatedMin = (typeof checkpoint === 'string' ? checkpoint : new Date(0).toISOString());
+
+                const { data, error } = await supabase
+                    .from('notes')
+                    .select('*')
+                    .gt('updated_at', updatedMin)
+                    .order('updated_at', { ascending: true })
+                    .limit(batchSize);
+
+                if (error) throw error;
+
+                const safeData = data || [];
+                const documents = safeData.map(row => mapFromSupabase(row as Record<string, unknown>) as unknown as RxDocumentData<NoteDocType>);
+                // New checkpoint is the last document's updatedAt
+                const lastDoc = safeData[safeData.length - 1];
+                const newCheckpoint = lastDoc ? lastDoc.updated_at : updatedMin;
+
+                return {
+                    documents,
+                    checkpoint: newCheckpoint
+                };
             }
         },
         push: {
             handler: async (changes) => {
-                // ИСПРАВЛЕНИЕ ЗДЕСЬ
-                const payload = changes.map((change: any) => {
-                    // 1. Берем данные документа
+                const rows = changes.map(change => {
                     const doc = { ...change.newDocumentState };
-
-                    // 2. УДАЛЯЕМ СЛУЖЕБНЫЕ ПОЛЯ RXDB
-                    // Если их не удалить, Prisma упадет с ошибкой "Unknown argument"
-                    delete doc._rev;
-                    delete doc._attachments;
-                    delete doc._deleted; // <--- Критично важно!
-
-                    return doc;
+                    // Ensure deleted flag is synced
+                    if (change.newDocumentState.syncDeleted) {
+                        doc.syncDeleted = true;
+                    }
+                    return mapToSupabase(doc, userId);
                 });
 
-                try {
-                    const response = await api.post('/sync/push', payload, {
-                        params: { collection: 'notes' }
-                    });
-                    return response.data || []; // Conflicts (empty if OK)
-                } catch (err) {
-                    console.error('Push Error Note:', err);
-                    throw err;
-                }
+                const { error } = await supabase
+                    .from('notes')
+                    .upsert(rows);
+
+                if (error) throw error;
+
+                return []; // No conflicts handling for now
             },
-            batchSize: 5 // Push in small batches
+            batchSize: 10
         },
         live: true,
-        retryTime: 5000,
+        retryTime: 6000, // Increase polling interval to 60s as fallback
         autoStart: true,
+        waitForLeadership: false, // Ensure replication starts immediately even in multiple tabs
     });
 
     // --- TAGS REPLICATION ---
-    await replicateRxCollection({
+    const tagsReplicationState = await replicateRxCollection({
         collection: collections.tags,
-        replicationIdentifier: 'tags-replication-v1',
+        replicationIdentifier: 'tags-supabase-v1',
         pull: {
-            handler: async (checkpoint: any, batchSize: number) => {
-                const updatedMin = checkpoint;
-                const limit = batchSize;
-                try {
-                    const response = await api.get('/sync/pull', {
-                        params: { collection: 'tags', checkpoint: updatedMin, limit }
-                    });
-                    const data = response.data;
-                    return {
-                        documents: data.documents,
-                        checkpoint: data.checkpoint
-                    };
-                } catch (err) { console.error('Pull Error Tag', err); throw err; }
+            handler: async (checkpoint: unknown, batchSize: number) => {
+                const updatedMin = (typeof checkpoint === 'string' ? checkpoint : new Date(0).toISOString());
+
+                const { data, error } = await supabase
+                    .from('tags')
+                    .select('*')
+                    .gt('updated_at', updatedMin)
+                    .order('updated_at', { ascending: true })
+                    .limit(batchSize);
+
+                if (error) throw error;
+
+                const safeData = data || [];
+
+                const documents = safeData.map(row => mapFromSupabase(row as Record<string, unknown>) as unknown as RxDocumentData<TagDocType>);
+
+                return {
+                    documents,
+                    checkpoint: safeData.length > 0 ? safeData[safeData.length - 1].updated_at : updatedMin
+                };
             }
         },
         push: {
             handler: async (changes) => {
-                // ИСПРАВЛЕНИЕ ЗДЕСЬ (Аналогично заметкам)
-                const payload = changes.map((change: any) => {
-                    const doc = { ...change.newDocumentState };
+                const rows = changes.map(change => mapToSupabase(change.newDocumentState as Record<string, unknown>, userId));
 
-                    // Удаляем мусор RxDB
-                    delete doc._rev;
-                    delete doc._attachments;
-                    delete doc._deleted;
+                const { error } = await supabase
+                    .from('tags')
+                    .upsert(rows);
 
-                    return doc;
-                });
-
-                try {
-                    const response = await api.post('/sync/push', payload, {
-                        params: { collection: 'tags' }
-                    });
-                    return response.data;
-                } catch (err) { console.error('Push Tag', err); throw err; }
+                if (error) throw error;
+                return [];
             },
-            batchSize: 5
+            batchSize: 10
         },
         live: true,
-        retryTime: 5000,
-        autoStart: true
+        retryTime: 6000, // Increase polling interval to 60s as fallback
+        autoStart: true,
+        waitForLeadership: false,
     });
+
+    // --- REALTIME SUBSCRIPTION ---
+    if (!realtimeChannel) {
+        realtimeChannel = supabase.channel('db-changes')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'notes' },
+                () => {
+                    notesReplicationState.reSync();
+                }
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'tags' },
+                () => {
+                    tagsReplicationState.reSync();
+                }
+            )
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    // console.log('Realtime connected');
+                }
+            });
+    }
 };

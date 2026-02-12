@@ -45,6 +45,7 @@ export default function DashboardPage() {
     };
 
     const handlePin = async (note: NoteResponseDto) => {
+        console.log(note, ' dasdasdad');
         try {
             await updateNote({
                 ...note,

@@ -16,7 +16,6 @@ addRxPlugin(RxDBUpdatePlugin);
 addRxPlugin(RxDBQueryBuilderPlugin);
 
 // 2. DevMode включаем ТОЛЬКО если не продакшн.
-// Это предотвратит ошибку DVM1 в продакшене.
 const isDev = process.env.NODE_ENV !== 'production';
 
 if (isDev) {
@@ -56,7 +55,10 @@ const noteSchema = {
 
         updatedAt: { type: 'string' },
         createdAt: { type: 'string' },
-        userId: { type: 'integer' },
+
+        // Changed to string to match Supabase UUID
+        userId: { type: 'string' },
+
         tags: {
             type: 'array',
             items: {
@@ -78,7 +80,7 @@ const tagSchema = {
     properties: {
         id: { type: 'string', maxLength: 100 },
         name: { type: 'string' },
-        userId: { type: 'integer' },
+        userId: { type: 'string' }, // Changed to string
         updatedAt: { type: 'string' },
         syncDeleted: { type: 'boolean' }
     },
@@ -101,14 +103,14 @@ export type NoteDocType = {
     isReminderSent: boolean;
     updatedAt: string;
     createdAt?: string;
-    userId: number;
+    userId: string; // Changed to string (UUID)
     tags: { id: string; name: string }[];
 };
 
 export type TagDocType = {
     id: string;
     name: string;
-    userId: number;
+    userId: string; // Changed to string (UUID)
     updatedAt: string;
     syncDeleted: boolean;
 };
@@ -131,15 +133,15 @@ export const getDatabase = async (): Promise<MyDatabase> => {
 };
 
 const createDatabase = async (): Promise<MyDatabase> => {
-    let storage: RxStorage<any, any> = getRxStorageDexie();
+    let storage: RxStorage<unknown, unknown> = getRxStorageDexie();
 
-    // 3. Оборачиваем хранилище ТОЛЬКО если мы в dev режиме (совпадает с условием добавления плагина)
+    // 3. Оборачиваем хранилище ТОЛЬКО если мы в dev режиме
     if (isDev) {
         storage = wrappedValidateAjvStorage({ storage });
     }
 
     const db = await createRxDatabase<MyDatabaseCollections>({
-        name: 'monokeepdb',
+        name: 'monokeepdb_v2', // Changed name to force fresh DB for schema change
         storage,
         ignoreDuplicate: true
     });

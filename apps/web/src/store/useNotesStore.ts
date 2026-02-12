@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { NoteResponseDto, CreateNoteDto, UpdateNoteDto } from '@monokeep/shared';
 import { getDatabase, NoteDocType } from '@/lib/db';
 import { replicateCollections } from '@/lib/replication';
+import { supabase } from '@/lib/supabase'; // Import shared client
 import { Subscription } from 'rxjs';
 
 interface KeepNoteImport {
@@ -28,14 +29,14 @@ interface NotesState {
     viewMode: 'active' | 'trash' | 'archive';
     isLoading: boolean;
     refreshTrigger: number;
-    userId: number; // Added userId to state
+    userId: string;
 
     // Actions
     init: () => Promise<void>;
     setNotes: (notes: NoteResponseDto[]) => void;
     setSearchQuery: (query: string) => void;
     setViewMode: (mode: 'active' | 'trash' | 'archive') => Promise<void>;
-    setUserId: (id: number) => void; // Added setUserId action
+    setUserId: (id: string) => void;
 
     setSelectedNote: (note: NoteResponseDto | null) => void;
     openEditModal: (note: NoteResponseDto) => void;
@@ -82,27 +83,33 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     viewMode: 'active',
     isLoading: true,
     refreshTrigger: 0,
-    userId: 0, // Default to 0
+    userId: '',
 
     init: async () => {
         if (typeof window === 'undefined') return;
 
-        // Extract User ID from Token
+        // 1. Get User ID from Supabase SDK
         try {
-            const token = localStorage.getItem('token');
-            if (token) {
-                const base64Url = token.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function (c) {
-                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-                }).join(''));
-                const payload = JSON.parse(jsonPayload);
-                if (payload.sub) {
-                    set({ userId: payload.sub });
-                }
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user?.id) {
+                set({ userId: session.user.id });
             }
+
+            // Listen for auth changes
+            supabase.auth.onAuthStateChange((_event, session) => {
+                if (session?.user?.id) {
+                    set({ userId: session.user.id });
+                    // Optionally reload view or specific logic
+                    const { viewMode } = get();
+                    get().setViewMode(viewMode);
+                } else {
+                    set({ userId: '' });
+                    set({ notes: [] }); // Clear notes on logout
+                }
+            });
+
         } catch (e) {
-            console.error('Failed to parse token for userId', e);
+            console.error('Failed to get Supabase session', e);
         }
 
         const db = await getDatabase();
@@ -126,7 +133,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
         if (typeof window === 'undefined') return;
         const db = await getDatabase();
-        const { searchQuery, userId } = get(); // Get userId
+        const { searchQuery, userId } = get();
+
+        // If no user, show nothing (or local caching strategy if offline preference)
+        if (!userId) {
+            set({ notes: [], isLoading: false });
+            return;
+        }
 
         if (dbSubscription) {
             dbSubscription.unsubscribe();
@@ -156,7 +169,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
         // Search filtering
         if (searchQuery) {
-            selector.title = { $regex: new RegExp(searchQuery, 'i') };
+            const escapeRegExp = (string: string) => {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+            const regex = { $regex: escapeRegExp(searchQuery), $options: 'i' };
+
+            selector.$or = [
+                { title: regex },
+                { content: regex },
+                { tags: { $elemMatch: { name: regex } } }
+            ];
         }
 
         const query = db.notes.find({
@@ -166,7 +188,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
         dbSubscription = query.$.subscribe((docs: NoteDocType[]) => {
             const mappedNotes = docs.map(doc => {
-                // @ts-ignore - RxDocument toJSON
+                // @ts-expect-error - RxDocument toJSON
                 const data = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
                 return {
                     ...data,
@@ -174,7 +196,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                     createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
                     reminderDate: data.reminderDate ? new Date(data.reminderDate) : null,
                     tags: data.tags || [],
-                    // Ensure DTO receives the sync status if needed, or map back
                     deleted: data.syncDeleted
                 };
             }) as unknown as NoteResponseDto[];
@@ -186,7 +207,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     createNote: async (note) => {
         const db = await getDatabase();
-        const { userId } = get(); // Get current userId
+        const { userId } = get();
+
+        if (!userId) {
+            console.error("Cannot create note: No User ID");
+            return;
+        }
 
         const tags = (note.tags || []).map(tag => ({
             id: crypto.randomUUID(),
@@ -200,7 +226,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             content: note.content || '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-            syncDeleted: false, // Use syncDeleted
+            syncDeleted: false,
             isDeleted: false,
             isArchived: false,
             isPinned: false,
@@ -216,21 +242,51 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         if (!note.id) return;
         const existing = await db.notes.findOne(note.id).exec();
         if (existing) {
-            let tags = existing.tags;
-            if (note.tags) {
-                tags = note.tags.map(tag => ({
-                    id: crypto.randomUUID(),
-                    name: tag
-                }));
-            }
-            console.log(note);
-            await existing.patch({
-                ...note,
-                color: note.color,
-                reminderDate: note.reminderDate ? new Date(note.reminderDate).toISOString() : null,
-                tags,
-                updatedAt: new Date().toISOString()
+            // Prepare update data by creating a shallow copy and sanitizing
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const updateData: any = { ...note };
+
+            // 1. Remove RxDB internal fields and mapped fields not in schema
+            delete updateData._rev;
+            delete updateData._meta;
+            delete updateData._attachments;
+            delete updateData._deleted;
+            delete updateData.deleted; // Mapped from syncDeleted
+
+            // 2. Convert Date objects to ISO strings
+            const dateFields = ['createdAt', 'updatedAt', 'deletedAt', 'reminderDate'];
+            dateFields.forEach(field => {
+                if (updateData[field] instanceof Date) {
+                    updateData[field] = updateData[field].toISOString();
+                }
             });
+
+            // 3. Explicitly handle specific fields logic
+            updateData.updatedAt = new Date().toISOString();
+
+            if (note.reminderDate !== undefined) {
+                updateData.reminderDate = note.reminderDate ? new Date(note.reminderDate).toISOString() : null;
+            }
+
+            // 4. Handle Tags: Ensure they are correctly formatted
+            if (note.tags) {
+                updateData.tags = note.tags.map((tag: any) => {
+                    if (typeof tag === 'string') {
+                        return {
+                            id: crypto.randomUUID(),
+                            name: tag
+                        };
+                    }
+                    return tag;
+                });
+            } else {
+                if (!('tags' in note)) {
+                    delete updateData.tags;
+                }
+            }
+
+            console.log('Patching note with:', updateData);
+            await existing.patch(updateData);
         }
     },
 
@@ -262,7 +318,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         const note = await db.notes.findOne(noteId).exec();
         if (note) {
             await note.patch({
-                syncDeleted: true, // Use syncDeleted
+                syncDeleted: true,
                 updatedAt: new Date().toISOString()
             });
         }
@@ -272,6 +328,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         const db = await getDatabase();
         const { userId } = get();
 
+        if (!userId) {
+            console.error("Cannot import notes: No User ID");
+            return;
+        }
+
         const notesToInsert = notesData.map(n => ({
             id: n.id || crypto.randomUUID(),
             title: n.title || 'Untitled',
@@ -279,7 +340,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             color: n.color || null,
             createdAt: n.createdTimestampUsec ? new Date(n.createdTimestampUsec / 1000).toISOString() : new Date().toISOString(),
             updatedAt: n.userEditedTimestampUsec ? new Date(n.userEditedTimestampUsec / 1000).toISOString() : new Date().toISOString(),
-            syncDeleted: false, // Use syncDeleted
+            syncDeleted: false,
             isDeleted: n.isTrashed || false,
             isArchived: n.isArchived || false,
             isPinned: n.isPinned || false,

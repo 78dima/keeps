@@ -3,7 +3,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginDtoSchema, LoginDto } from '@monokeep/shared/dist/dto/user.dto';
-import api from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/form';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { isAxiosError } from 'axios';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -33,14 +32,34 @@ export default function LoginPage() {
 
     async function onSubmit(data: LoginDto) {
         try {
-            const res = await api.post('/auth/login', data);
-            localStorage.setItem('token', res.data.access_token);
-            toast({ title: 'Welcome back!', description: 'Logged in successfully.' });
-            router.push('/');
+            const { data: authData, error } = await supabase.auth.signInWithPassword({
+                email: data.email,
+                password: data.password,
+            });
+
+            if (error) {
+                throw error;
+            }
+
+            if (authData.session) {
+                // Store token for legacy logic compatibility if needed, 
+                // but ideally use supabase.auth.getSession() everywhere.
+                // Our useNotesStore and usePinnedNotes check 'sb-access-token' or 'token'.
+                // Supabase optionally persists to localStorage 'sb-<ref>-auth-token'.
+                // We'll manually set 'token' to support existing code that looks for it,
+                // OR update existing code to look for Supabase cookie/storage.
+                // For now, let's sync it.
+                localStorage.setItem('token', authData.session.access_token);
+
+                toast({ title: 'Welcome back!', description: 'Logged in successfully.' });
+                router.push('/');
+            }
         } catch (error: unknown) {
             let errorMessage = 'Login failed';
-            if (isAxiosError(error)) {
-                errorMessage = error.response?.data?.message || errorMessage;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null && 'message' in error) {
+                errorMessage = String((error as { message: unknown }).message);
             }
             toast({
                 variant: 'destructive',

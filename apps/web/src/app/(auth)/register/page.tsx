@@ -3,7 +3,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { RegisterDtoSchema, RegisterDto } from '@monokeep/shared/dist/dto/user.dto';
-import api from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/form';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
-import { isAxiosError } from 'axios';
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -33,14 +32,28 @@ export default function RegisterPage() {
 
     async function onSubmit(data: RegisterDto) {
         try {
-            const res = await api.post('/auth/register', data);
-            localStorage.setItem('token', res.data.access_token);
-            toast({ title: 'Welcome!', description: 'Account created successfully.' });
-            router.push('/');
+            const { data: authData, error } = await supabase.auth.signUp({
+                email: data.email,
+                password: data.password,
+            });
+
+            if (error) {
+                throw error;
+            }
+
+            if (authData.session) {
+                localStorage.setItem('token', authData.session.access_token);
+                toast({ title: 'Welcome!', description: 'Account created successfully.' });
+                router.push('/');
+            } else if (authData.user && !authData.session) {
+                toast({ title: 'Check your email', description: 'Please verify your email address.' });
+            }
         } catch (error: unknown) {
             let errorMessage = 'Registration failed';
-            if (isAxiosError(error)) {
-                errorMessage = error.response?.data?.message || errorMessage;
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'object' && error !== null && 'message' in error) {
+                errorMessage = String((error as { message: unknown }).message);
             }
             toast({
                 variant: 'destructive',

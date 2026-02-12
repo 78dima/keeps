@@ -133,11 +133,13 @@ export function MobileSidebar({ isOpen, onClose }: { isOpen: boolean; onClose: (
 
 function PinnedNotesList({ onItemClick }: { onItemClick?: () => void }) {
     const { notes, init } = usePinnedNotes();
-    const { openEditModal } = useNotesStore();
+    const { openEditModal, userId } = useNotesStore();
 
     useEffect(() => {
-        init();
-    }, [init]);
+        if (userId) {
+            init(userId);
+        }
+    }, [init, userId]);
 
     if (notes.length === 0) return null;
 

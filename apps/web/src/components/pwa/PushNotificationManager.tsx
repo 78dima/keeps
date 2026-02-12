@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import api from "@/lib/api";
+import { supabase } from "@/lib/supabase";
+// import api from "@/lib/api"; // Legacy API disabled
 
 // Helper to convert VAPID key
 function urlBase64ToUint8Array(base64String: string) {
@@ -55,14 +56,48 @@ export function PushNotificationManager() {
                 ),
             });
             setSubscription(sub);
-            await api.post("/notifications/subscribe", {
-                subscription: sub,
-            });
-            alert("Subscribed!");
+
+            // Supabase Integration
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user?.id) {
+                const p256dh = sub.getKey('p256dh');
+                const auth = sub.getKey('auth');
+
+                if (p256dh && auth) {
+                    const p256dhStr = arrayBufferToBase64(p256dh);
+                    const authStr = arrayBufferToBase64(auth);
+
+                    const { error } = await supabase.from('push_subscriptions').upsert({
+                        user_id: session.user.id,
+                        endpoint: sub.endpoint,
+                        p256dh: p256dhStr,
+                        auth: authStr,
+                        user_agent: navigator.userAgent
+                    }, { onConflict: 'user_id, endpoint' });
+
+                    if (error) {
+                        console.error("Failed to save subscription to Supabase:", error);
+                    } else {
+                        console.log("Subscription saved to Supabase");
+                    }
+                }
+            }
+
+            alert("Subscribed to Notifications!");
         } catch (error) {
             console.error("Subscription failed:", error);
             alert("Failed to subscribe.");
         }
+    }
+
+    function arrayBufferToBase64(buffer: ArrayBuffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
     }
 
     if (!isSupported) {
