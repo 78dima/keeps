@@ -14,10 +14,12 @@ interface KeepNoteImport {
     isPinned?: boolean;
     isArchived?: boolean;
     isTrashed?: boolean;
+    isReminderSent?: boolean;
+    reminderDate?: string;
     createdTimestampUsec?: number;
     userEditedTimestampUsec?: number;
     createdAt?: string;
-    tags?: { name: string }[];
+    labels?: { name: string }[];
     [key: string]: unknown;
 }
 
@@ -375,8 +377,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             isDeleted: n.isTrashed || false,
             isArchived: n.isArchived || false,
             isPinned: n.isPinned || false,
-            isReminderSent: false,
-            tags: (n.tags || []).map(t => ({
+            reminderDate: n.reminderDate || null,
+            isReminderSent: n.isReminderSent || false,
+            tags: (n.labels || []).map(t => ({
                 id: crypto.randomUUID(),
                 name: t.name
             })),

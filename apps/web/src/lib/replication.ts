@@ -7,8 +7,9 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 // --- CONFIGURATION ---
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
-const RETRY_TIME_MS = 30_000; // 30s fallback polling (Realtime handles instant sync)
+const RETRY_TIME_MS = 5 * 60_000; // 5 min fallback polling (Realtime handles instant sync)
 const BATCH_SIZE = 50;
+const PUSH_ECHO_TTL_MS = 5_000; // How long to ignore Realtime echoes after a push
 
 const log = (...args: unknown[]) => {
     if (IS_DEV) console.log('[Replication]', ...args);
@@ -62,7 +63,12 @@ interface ReplicationCheckpoint {
 let notesReplication: RxReplicationState<NoteDocType, ReplicationCheckpoint> | null = null;
 let tagsReplication: RxReplicationState<TagDocType, ReplicationCheckpoint> | null = null;
 let realtimeChannel: RealtimeChannel | null = null;
-let isPushInProgress = false;
+
+/**
+ * Track recently pushed document IDs to ignore their Realtime echoes.
+ * Each entry is auto-removed after PUSH_ECHO_TTL_MS.
+ */
+const recentlyPushedIds = new Set<string>();
 
 // --- CLEANUP ---
 
@@ -84,7 +90,7 @@ export const cancelReplication = async () => {
         realtimeChannel = null;
     }
 
-    isPushInProgress = false;
+    recentlyPushedIds.clear();
     log('All replications cancelled.');
 };
 
@@ -95,38 +101,40 @@ function createPullHandler<T>(
     userId: string
 ) {
     return async (checkpoint: ReplicationCheckpoint | undefined, batchSize: number) => {
-        const updatedMin = checkpoint?.updatedAt ?? new Date(0).toISOString();
+        const updatedMin = checkpoint?.updatedAt ?? '';
         const lastId = checkpoint?.id ?? '';
 
-        log(`${tableName} pull | checkpoint: ${updatedMin} | lastId: ${lastId}`);
+        log(`${tableName} pull | checkpoint: ${updatedMin || '(initial)'} | lastId: ${lastId || '(none)'}`);
 
-        // Composite cursor query: get rows >= checkpoint timestamp,
-        // then filter out the exact checkpoint row (we already have it)
-        const { data, error } = await supabase
+        // Build query with proper keyset pagination (composite cursor).
+        // Instead of `.gte()` + skip-first-row (which breaks when multiple docs
+        // share the same timestamp), we use a proper composite condition:
+        //   (updated_at > checkpoint) OR (updated_at = checkpoint AND id > lastId)
+        // This guarantees we never re-fetch already-seen documents.
+        let query = supabase
             .from(tableName)
             .select('*')
-            .eq('user_id', userId)
-            .gte('updated_at', updatedMin)
+            .eq('user_id', userId);
+
+        if (updatedMin && lastId) {
+            // Composite keyset cursor: skip everything at or before the checkpoint
+            query = query.or(
+                `updated_at.gt.${updatedMin},and(updated_at.eq.${updatedMin},id.gt.${lastId})`
+            );
+        } else if (updatedMin) {
+            // Only timestamp (no ID) — fallback to gte
+            query = query.gte('updated_at', updatedMin);
+        }
+        // If no checkpoint at all → fetch everything from the beginning
+
+        const { data, error } = await query
             .order('updated_at', { ascending: true })
             .order('id', { ascending: true })
-            .limit(batchSize + 1);
+            .limit(batchSize);
 
         if (error) throw error;
 
-        let rows = data ?? [];
-
-        // Skip the exact checkpoint document (composite: same timestamp + same id)
-        if (lastId && rows.length > 0) {
-            const firstRow = rows[0];
-            if (firstRow.updated_at === updatedMin && firstRow.id === lastId) {
-                rows = rows.slice(1);
-            }
-        }
-
-        // Trim back to batchSize
-        if (rows.length > batchSize) {
-            rows = rows.slice(0, batchSize);
-        }
+        const rows = data ?? [];
 
         const documents = rows.map(
             row => mapFromSupabase(row as Record<string, unknown>) as unknown as RxDocumentData<T>
@@ -136,7 +144,7 @@ function createPullHandler<T>(
         const lastRow = rows[rows.length - 1];
         const newCheckpoint: ReplicationCheckpoint = lastRow
             ? { updatedAt: lastRow.updated_at, id: lastRow.id }
-            : { updatedAt: updatedMin, id: lastId };
+            : checkpoint ?? { updatedAt: '', id: '' };
 
         log(`${tableName} pulled: ${documents.length} docs`);
 
@@ -151,10 +159,17 @@ function createPushHandler(
     userId: string
 ) {
     return async (changes: { newDocumentState: Record<string, unknown> }[]) => {
-        isPushInProgress = true;
-
         try {
             const rows = changes.map(change => mapToSupabase(change.newDocumentState, userId));
+
+            // Track pushed document IDs to ignore their Realtime echoes
+            for (const row of rows) {
+                const id = row.id as string;
+                if (id) {
+                    recentlyPushedIds.add(id);
+                    setTimeout(() => recentlyPushedIds.delete(id), PUSH_ECHO_TTL_MS);
+                }
+            }
 
             const { error } = await supabase
                 .from(tableName)
@@ -162,9 +177,13 @@ function createPushHandler(
 
             if (error) throw error;
             return [];
-        } finally {
-            // Small delay to let Realtime event pass before resetting flag
-            setTimeout(() => { isPushInProgress = false; }, 2000);
+        } catch (err) {
+            // On error, clear tracked IDs so Realtime can recover
+            for (const change of changes) {
+                const id = change.newDocumentState.id as string;
+                if (id) recentlyPushedIds.delete(id);
+            }
+            throw err;
         }
     };
 }
@@ -238,9 +257,12 @@ export const replicateCollections = async (collections: MyDatabaseCollections, u
                 filter: `user_id=eq.${userId}`,
             },
             (payload) => {
-                // Skip echo from our own push
-                if (isPushInProgress) {
-                    log('Notes Realtime event skipped (push in progress)');
+                // Skip echo from our own push (check by document ID)
+                const recordId = (payload.new as Record<string, unknown>)?.id as string
+                    || (payload.old as Record<string, unknown>)?.id as string;
+
+                if (recordId && recentlyPushedIds.has(recordId)) {
+                    log('Notes Realtime echo skipped for id:', recordId);
                     return;
                 }
                 log('Notes change:', payload.eventType);
@@ -256,8 +278,11 @@ export const replicateCollections = async (collections: MyDatabaseCollections, u
                 filter: `user_id=eq.${userId}`,
             },
             (payload) => {
-                if (isPushInProgress) {
-                    log('Tags Realtime event skipped (push in progress)');
+                const recordId = (payload.new as Record<string, unknown>)?.id as string
+                    || (payload.old as Record<string, unknown>)?.id as string;
+
+                if (recordId && recentlyPushedIds.has(recordId)) {
+                    log('Tags Realtime echo skipped for id:', recordId);
                     return;
                 }
                 log('Tags change:', payload.eventType);

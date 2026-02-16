@@ -44,7 +44,7 @@ export const NoteResponseSchema = z.object({
     deletedAt: z.date().nullable(),
     reminderDate: z.date().nullable(),
     isReminderSent: z.boolean(), // Add this new field
-    userId: z.number(),
+    userId: z.string(),
     updatedAt: z.date(),
     createdAt: z.date(),
     tags: z.array(z.object({

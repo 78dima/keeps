@@ -3,6 +3,7 @@
 import { Sidebar, MobileSidebar } from '@/components/notes/sidebar';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 import { Button } from '@/components/ui/button';
 import { LogOut, Menu } from 'lucide-react';
@@ -34,13 +35,15 @@ export default function DashboardLayout({
     }, [initStore]);
 
     useEffect(() => {
-        // Basic Client-Side Auth Check
-        const token = localStorage.getItem('token');
-        if (!token) {
-            router.push('/login');
-        } else {
-            setIsAuthChecking(false);
-        }
+        const checkAuth = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                router.push('/login');
+            } else {
+                setIsAuthChecking(false);
+            }
+        };
+        checkAuth();
     }, [router]);
 
     // Initial search query sync
@@ -72,8 +75,8 @@ export default function DashboardLayout({
     }, [debouncedSearchQuery, router, setSearchQueryStore]);
 
 
-    const handleLogout = () => {
-        localStorage.removeItem('token');
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
         router.push('/login');
     };
 
