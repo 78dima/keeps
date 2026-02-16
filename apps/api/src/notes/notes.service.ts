@@ -188,8 +188,6 @@ export class NotesService {
             color: note.color,
             reminderDate: note.reminderDate || false,
             isReminderSent: note.isReminderSent || false,
-            createdTimestampUsec: note.createdAt.getTime() * 1000 || null,
-            userEditedTimestampUsec: note.updatedAt.getTime() * 1000 || null,
             labels: note.tags.map(tag => ({ name: tag.name })),
         }));
     }
