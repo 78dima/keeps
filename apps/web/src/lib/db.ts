@@ -141,9 +141,9 @@ const createDatabase = async (): Promise<MyDatabase> => {
     }
 
     const db = await createRxDatabase<MyDatabaseCollections>({
-        name: 'monokeepdb_v2', // Changed name to force fresh DB for schema change
+        name: 'monokeepdb_v2',
         storage,
-        ignoreDuplicate: true
+        ignoreDuplicate: isDev // Only allowed in dev-mode, throws DB9 in production
     });
 
     await db.addCollections({
