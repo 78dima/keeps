@@ -107,14 +107,14 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
                     {note.isReminderSent ? (
                         <div
                             className="text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-sm flex items-center gap-1 cursor-pointer hover:bg-green-100 transition-colors"
-                            onClick={(e) => handleAction(e, 'updating', () => onUpdate?.({ ...note, isReminderSent: false }))}
-                            title="Click to mark as read"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                // Open edit modal with cleared reminder — changes persist only on Save
+                                onEdit({ ...note, reminderDate: null, isReminderSent: false });
+                            }}
+                            title="Нажмите, чтобы сбросить напоминание"
                         >
-                            {actionStatus === 'updating' ? (
-                                <div className="h-3 w-3 rounded-full border-2 border-green-700/30 border-t-green-700 animate-spin" />
-                            ) : (
-                                <CheckCheck className="h-3 w-3" />
-                            )}
+                            <CheckCheck className="h-3 w-3" />
                             <span>Уведомление отправлено</span>
                         </div>
                     ) : note.reminderDate && (

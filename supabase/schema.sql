@@ -139,3 +139,11 @@ create trigger update_tags_updated_at
     before update on tags
     for each row
     execute procedure update_updated_at_column();
+
+-- REALTIME: Enable postgres_changes for notes and tags
+alter publication supabase_realtime add table public.notes;
+alter publication supabase_realtime add table public.tags;
+
+-- REPLICA IDENTITY: Required for Realtime UPDATE/DELETE events to include full row data
+alter table public.notes replica identity full;
+alter table public.tags replica identity full;

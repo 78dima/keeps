@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { NoteResponseDto, CreateNoteDto, UpdateNoteDto } from '@monokeep/shared';
 import { getDatabase, NoteDocType } from '@/lib/db';
-import { replicateCollections } from '@/lib/replication';
-import { supabase } from '@/lib/supabase'; // Import shared client
+import { replicateCollections, cancelReplication } from '@/lib/replication';
+import { supabase } from '@/lib/supabase';
 import { Subscription } from 'rxjs';
 
 interface KeepNoteImport {
@@ -74,6 +74,8 @@ const sortNotes = (posts: NoteResponseDto[]) => {
 };
 
 let dbSubscription: Subscription | null = null;
+let authSubscription: { unsubscribe: () => void } | null = null;
+let isInitialized = false;
 
 export const useNotesStore = create<NotesState>((set, get) => ({
     notes: [],
@@ -88,6 +90,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     init: async () => {
         if (typeof window === 'undefined') return;
 
+        // Prevent double initialization
+        if (isInitialized) return;
+        isInitialized = true;
+
         // 1. Get User ID from Supabase SDK
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -95,25 +101,52 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                 set({ userId: session.user.id });
             }
 
+            // Cleanup previous auth listener if any
+            if (authSubscription) {
+                authSubscription.unsubscribe();
+                authSubscription = null;
+            }
+
             // Listen for auth changes
-            supabase.auth.onAuthStateChange((_event, session) => {
-                if (session?.user?.id) {
-                    set({ userId: session.user.id });
-                    // Optionally reload view or specific logic
+            const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+                const prevUserId = get().userId;
+                const newUserId = session?.user?.id ?? '';
+
+                if (newUserId && newUserId !== prevUserId) {
+                    // New user logged in (or token refreshed with different user)
+                    set({ userId: newUserId });
+
+                    // Restart replication for new user
+                    const db = await getDatabase();
+                    await replicateCollections(db.collections, newUserId);
+
+                    // Reload current view
                     const { viewMode } = get();
                     get().setViewMode(viewMode);
-                } else {
-                    set({ userId: '' });
-                    set({ notes: [] }); // Clear notes on logout
+                } else if (!newUserId && prevUserId) {
+                    // User logged out
+                    set({ userId: '', notes: [] });
+                    await cancelReplication();
+
+                    if (dbSubscription) {
+                        dbSubscription.unsubscribe();
+                        dbSubscription = null;
+                    }
                 }
             });
+            authSubscription = subscription;
 
         } catch (e) {
             console.error('Failed to get Supabase session', e);
         }
 
+        // 2. Init DB and start replication
         const db = await getDatabase();
-        await replicateCollections(db.collections);
+        const { userId } = get();
+
+        if (userId) {
+            await replicateCollections(db.collections, userId);
+        }
     },
 
     setNotes: (notes) => set({ notes: sortNotes(notes) }),
@@ -135,7 +168,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         const db = await getDatabase();
         const { searchQuery, userId } = get();
 
-        // If no user, show nothing (or local caching strategy if offline preference)
+        // If no user, show nothing
         if (!userId) {
             set({ notes: [], isLoading: false });
             return;
@@ -146,7 +179,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             dbSubscription = null;
         }
 
-        // eslint-disable-next-line
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const selector: any = {
             userId: userId
         };
@@ -154,7 +187,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         // Mode filtering
         if (mode === 'trash') {
             selector.isDeleted = true;
-            // RxDB Filtering: Check syncDeleted, not deleted
             selector.syncDeleted = { $ne: true };
         } else if (mode === 'archive') {
             selector.isArchived = true;
@@ -242,7 +274,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         if (!note.id) return;
         const existing = await db.notes.findOne(note.id).exec();
         if (existing) {
-            // Prepare update data by creating a shallow copy and sanitizing
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const updateData: any = { ...note };
 
@@ -270,6 +301,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
             // 4. Handle Tags: Ensure they are correctly formatted
             if (note.tags) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 updateData.tags = note.tags.map((tag: any) => {
                     if (typeof tag === 'string') {
                         return {
@@ -285,7 +317,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                 }
             }
 
-            console.log('Patching note with:', updateData);
             await existing.patch(updateData);
         }
     },
@@ -345,7 +376,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             isArchived: n.isArchived || false,
             isPinned: n.isPinned || false,
             isReminderSent: false,
-            tags: [],
+            tags: (n.tags || []).map(t => ({
+                id: crypto.randomUUID(),
+                name: t.name
+            })),
             userId: userId
         }));
 

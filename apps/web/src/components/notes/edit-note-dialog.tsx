@@ -49,6 +49,8 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                 content,
                 color,
                 reminderDate: reminder ? new Date(reminder) : null,
+                // Reset reminder flag when date is cleared or changed
+                isReminderSent: reminder ? note.isReminderSent : false,
                 tags: tags
             });
             onUpdate();
