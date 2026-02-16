@@ -10,6 +10,7 @@ import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { useNotesStore } from '@/store/useNotesStore';
 import { ImportNotesDialog } from './import-notes-dialog';
+import { ExportNotesButton } from './export-notes-button';
 
 const links = [
     { name: 'Notes', href: '/', icon: Lightbulb },
@@ -56,6 +57,7 @@ function SidebarContent({ className, onItemClick }: { className?: string, onItem
             </div>
             <div className="p-4 border-t border-black/5 space-y-2 bg-white/50 shrink-0">
                 <ImportNotesDialog />
+                <ExportNotesButton />
                 <TelegramLinkDialog />
             </div>
         </div>

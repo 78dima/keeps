@@ -52,6 +52,11 @@ export class NotesController {
         return this.notesService.findTrash(req.user.id);
     }
 
+    @Get('export')
+    exportAll(@Request() req: any) {
+        return this.notesService.exportNotes(req.user.id);
+    }
+
     @Get(':id')
     findOne(@Request() req: any, @Param('id', ParseIntPipe) id: number) {
         return this.notesService.findOne(req.user.id, id);
