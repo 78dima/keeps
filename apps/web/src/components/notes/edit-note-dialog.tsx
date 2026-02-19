@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Bell, BellOff } from 'lucide-react';
 import { TagInput } from '@/components/ui/tag-input';
 import { useNotesStore } from '@/store/useNotesStore';
 
@@ -24,13 +24,24 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
     const [reminder, setReminder] = useState<string>('');
     const [tags, setTags] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
+    // Bell toggle: true = notification will be sent, false = already sent / disabled
+    const [notifyEnabled, setNotifyEnabled] = useState(false);
 
     useEffect(() => {
         if (note) {
             setTitle(note.title);
             setContent(note.content);
             setColor(note.color || null);
-            setReminder(note.reminderDate ? new Date(note.reminderDate).toISOString().slice(0, 16) : '');
+            // Format as local time for datetime-local input (toISOString gives UTC, which is wrong here)
+            if (note.reminderDate) {
+                const d = new Date(note.reminderDate);
+                const pad = (n: number) => String(n).padStart(2, '0');
+                setReminder(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+            } else {
+                setReminder('');
+            }
+            // Bell state: active when reminder hasn't been sent yet
+            setNotifyEnabled(!note.isReminderSent);
             // Convert Tag objects to string array for TagInput
             setTags(note.tags ? note.tags.map(t => t.name) : []);
         }
@@ -49,8 +60,9 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                 content,
                 color,
                 reminderDate: reminder ? new Date(reminder) : null,
-                // Reset reminder flag when date is cleared or changed
-                isReminderSent: reminder ? note.isReminderSent : false,
+                // Bell ON + date set = send notification (isReminderSent: false)
+                // Bell OFF or no date = don't send (isReminderSent: true or irrelevant)
+                isReminderSent: reminder ? !notifyEnabled : false,
                 tags: tags
             });
             onUpdate();
@@ -122,10 +134,36 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                                 <Input
                                     type="datetime-local"
                                     value={reminder}
-                                    onChange={(e) => setReminder(e.target.value)}
+                                    onChange={(e) => {
+                                        setReminder(e.target.value);
+                                        // Auto-enable bell when user sets a new date
+                                        if (e.target.value) setNotifyEnabled(true);
+                                    }}
                                     className="w-fit h-auto text-xs bg-transparent border-none shadow-none focus-visible:ring-0 p-0 text-foreground/80 font-medium font-mono"
                                     disabled={isSaving}
                                 />
+                                {/* Bell toggle — controls whether notification will be sent */}
+                                {reminder && (
+                                    <button
+                                        type="button"
+                                        onClick={() => !isSaving && setNotifyEnabled(!notifyEnabled)}
+                                        disabled={isSaving}
+                                        className={`
+                                            p-1.5 rounded-full transition-all duration-200
+                                            ${notifyEnabled
+                                                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 ring-1 ring-amber-300'
+                                                : 'bg-black/5 text-black/30 hover:bg-black/10 hover:text-black/50'
+                                            }
+                                        `}
+                                        title={notifyEnabled ? 'Уведомление будет отправлено' : 'Уведомление отключено — нажмите чтобы включить'}
+                                    >
+                                        {notifyEnabled ? (
+                                            <Bell className="w-3.5 h-3.5" />
+                                        ) : (
+                                            <BellOff className="w-3.5 h-3.5" />
+                                        )}
+                                    </button>
+                                )}
                             </div>
 
                             <div className="relative py-2 -mx-2 px-2">

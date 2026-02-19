@@ -40,6 +40,7 @@ const noteSchema = {
         color: { type: ['string', 'null'] },
         isPinned: { type: 'boolean' },
         isArchived: { type: 'boolean' },
+        wasSentOnce: { type: 'boolean' },
 
         // UI Trash flag
         isDeleted: { type: 'boolean' },
@@ -101,6 +102,7 @@ export type NoteDocType = {
     deletedAt?: string | null;
     reminderDate?: string | null;
     isReminderSent: boolean;
+    wasSentOnce?: boolean;
     updatedAt: string;
     createdAt?: string;
     userId: string; // Changed to string (UUID)
@@ -141,7 +143,7 @@ const createDatabase = async (): Promise<MyDatabase> => {
     }
 
     const db = await createRxDatabase<MyDatabaseCollections>({
-        name: 'monokeepdb_v2',
+        name: 'monokeepdb_v5',
         storage,
         ignoreDuplicate: isDev // Only allowed in dev-mode, throws DB9 in production
     });

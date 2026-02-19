@@ -39,7 +39,7 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
     return (
         <Card
             className={cn(
-                "group relative transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 cursor-pointer h-fit rounded-[2rem] border-transparent bg-white shadow-sm ring-1 ring-black/5",
+                "group relative transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 cursor-pointer h-full rounded-[2rem] border-transparent bg-white shadow-sm ring-1 ring-black/5",
                 note.isPinned && "ring-2 ring-primary/10 bg-blue-50/30"
             )}
             style={bgStyle}
@@ -105,16 +105,8 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
 
                 <div className="flex flex-wrap items-center gap-2 mt-4">
                     {note.isReminderSent ? (
-                        <div
-                            className="text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-sm flex items-center gap-1 cursor-pointer hover:bg-green-100 transition-colors"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                // Open edit modal with cleared reminder — changes persist only on Save
-                                onEdit({ ...note, reminderDate: null, isReminderSent: false });
-                            }}
-                            title="Нажмите, чтобы сбросить напоминание"
-                        >
-                            <CheckCheck className="h-3 w-3" />
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100/80 border border-amber-200/60 text-amber-700 text-[10px] font-semibold tracking-wide select-none">
+                            <CheckCheck className="h-3 w-3 shrink-0" />
                             <span>Уведомление отправлено</span>
                         </div>
                     ) : note.reminderDate && (

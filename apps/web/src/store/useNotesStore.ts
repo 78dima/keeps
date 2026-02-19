@@ -56,21 +56,37 @@ interface NotesState {
     triggerRefresh: () => void;
 }
 
+/**
+ * "Pyramid" sorting — 4 tiers.
+ *
+ * 🔝 Tier 0 — Pinned        (isPinned)
+ * 🔥 Tier 1 — Alarm         (wasSentOnce === true) — permanent
+ * ⏰ Tier 2 — Scheduled     (reminderDate set, not yet sent)
+ * 📄 Tier 3 — Base          (everything else)
+ *
+ * Within each tier: sorted by updatedAt (newest first).
+ * updatedAt is ONLY bumped when tier changes (pin, reminder, notification),
+ * NOT on content edits — so notes stay in place when you edit text.
+ */
+const getTier = (n: NoteResponseDto): number => {
+    if (n.isPinned) return 0;
+    if (n.wasSentOnce) return 1;
+    if (n.reminderDate && !n.wasSentOnce) return 2;
+    return 3;
+};
+
 const sortNotes = (posts: NoteResponseDto[]) => {
     return [...posts].sort((a, b) => {
-        // 1. Reminder Sent (Top Priority)
-        if (a.isReminderSent && !b.isReminderSent) return -1;
-        if (!a.isReminderSent && b.isReminderSent) return 1;
+        // 1. Compare tiers
+        const tierDiff = getTier(a) - getTier(b);
+        if (tierDiff !== 0) return tierDiff;
 
-        // 2. Date (Newest first)
+        // 2. Within tier — most recently tier-changed first
         const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        if (dateA !== dateB) return dateB - dateA;
 
-        if (dateA !== dateB) {
-            return dateB - dateA;
-        }
-
-        // 3. Fallback to ID string comparison for stability
+        // 3. Stable fallback
         return a.id.localeCompare(b.id);
     });
 };
@@ -265,6 +281,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             isArchived: false,
             isPinned: false,
             isReminderSent: false,
+            wasSentOnce: false,
             reminderDate: note.reminderDate ? new Date(note.reminderDate).toISOString() : null,
             tags,
             userId: userId
@@ -294,8 +311,25 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                 }
             });
 
-            // 3. Explicitly handle specific fields logic
-            updateData.updatedAt = new Date().toISOString();
+            // 3. Only bump updatedAt when tier-relevant fields actually change
+            //    Content/color/tag edits keep the old updatedAt → note stays in place
+            const toTs = (d: unknown) => d ? new Date(d as string).getTime() : 0;
+
+            const pinChanged = 'isPinned' in note && note.isPinned !== existing.isPinned;
+            const reminderChanged = 'reminderDate' in note && toTs(note.reminderDate) !== toTs(existing.reminderDate);
+            const sentChanged = 'isReminderSent' in note && note.isReminderSent !== existing.isReminderSent;
+
+            // Alarm notes (wasSentOnce): NEVER bump updatedAt from frontend.
+            // Only the backend edge function bumps updated_at when notification fires.
+            // Non-alarm notes: bump on any tier change (pin, reminder date, sent status)
+            const isAlarm = existing.wasSentOnce;
+            const shouldBumpUpdatedAt = !isAlarm && (pinChanged || reminderChanged || sentChanged);
+
+            if (shouldBumpUpdatedAt) {
+                updateData.updatedAt = new Date().toISOString();
+            } else {
+                delete updateData.updatedAt;
+            }
 
             if (note.reminderDate !== undefined) {
                 updateData.reminderDate = note.reminderDate ? new Date(note.reminderDate).toISOString() : null;

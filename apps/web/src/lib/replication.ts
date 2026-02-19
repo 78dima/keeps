@@ -7,7 +7,7 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 // --- CONFIGURATION ---
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
-const RETRY_TIME_MS = 5 * 60_000; // 5 min fallback polling (Realtime handles instant sync)
+const RETRY_TIME_MS = 2 * 60_000; // 2 min fallback polling (Realtime handles instant sync)
 const BATCH_SIZE = 50;
 const PUSH_ECHO_TTL_MS = 5_000; // How long to ignore Realtime echoes after a push
 

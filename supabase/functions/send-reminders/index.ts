@@ -1,7 +1,7 @@
 // supabase/functions/send-reminders/index.ts
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import webpush from "https://esm.sh/web-push@3.6.7";
+import webpush from "npm:web-push@3.6.7";
 
 // --- КОНФИГУРАЦИЯ ---
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -53,7 +53,7 @@ async function sendWebPushToUser(userId: string, payload: any) {
         try {
             await webpush.sendNotification({
                 endpoint: sub.endpoint,
-                keys: { p256dh: sub.keys_p256dh, auth: sub.keys_auth } // Внимательно с названиями полей в БД!
+                keys: { p256dh: sub.p256dh, auth: sub.auth }
             }, JSON.stringify(payload));
             successCount++;
         } catch (err: any) {
@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
         // В реальном проде можно проверять, ушло ли хоть куда-то, но для MVP лучше пометить.
         await supabase
             .from('notes')
-            .update({ is_reminder_sent: true })
+            .update({ is_reminder_sent: true, was_sent_once: true, updated_at: new Date().toISOString() })
             .eq('id', note.id);
 
         results.push({ id: note.id, status: 'processed' });

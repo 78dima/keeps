@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { CreateNote } from '@/components/notes/create-note';
 import { NoteCard } from '@/components/notes/note-card';
 import { useToast } from '@/hooks/use-toast';
@@ -8,6 +8,8 @@ import { EditNoteDialog } from '@/components/notes/edit-note-dialog';
 import { NoteResponseDto } from '@monokeep/shared';
 import { useSearchParams } from 'next/navigation';
 import { useNotesStore } from '@/store/useNotesStore';
+
+type TierFilter = 'all' | 'alarm' | 'scheduled';
 
 export default function DashboardPage() {
     const {
@@ -21,6 +23,8 @@ export default function DashboardPage() {
         setViewMode,
         isLoading
     } = useNotesStore();
+
+    const [tierFilter, setTierFilter] = useState<TierFilter>('all');
 
     const { toast } = useToast();
     const searchParams = useSearchParams();
@@ -71,6 +75,42 @@ export default function DashboardPage() {
         return <div className="text-center mt-20">Loading notes...</div>;
     }
 
+    // --- Tier filtering ---
+    const pinned = notes.filter(n => n.isPinned);
+    const alarm = notes.filter(n => !n.isPinned && n.wasSentOnce);
+    const scheduled = notes.filter(n => !n.isPinned && !n.wasSentOnce && n.reminderDate);
+    const base = notes.filter(n => !n.isPinned && !n.wasSentOnce && !n.reminderDate);
+
+    const filterButtons: { key: TierFilter; label: string; count: number }[] = [
+        { key: 'all', label: 'All', count: notes.length },
+        { key: 'alarm', label: '🔥 Alarm', count: alarm.length },
+        { key: 'scheduled', label: '⏰ Scheduled', count: scheduled.length },
+    ];
+
+    const renderGrid = (items: NoteResponseDto[], label: string) => {
+        if (items.length === 0) return null;
+        return (
+            <section>
+                <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase mb-4 pl-1">
+                    {label}
+                </h2>
+                <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
+                    {items.map(note => (
+                        <div key={note.id} className="break-inside-avoid">
+                            <NoteCard
+                                note={note}
+                                onEdit={(n) => openEditModal(n)}
+                                onPin={handlePin}
+                                onDelete={handleDelete}
+                                onUpdate={handleUpdate}
+                            />
+                        </div>
+                    ))}
+                </div>
+            </section>
+        );
+    };
+
     return (
         <div className="mx-auto w-full max-w-5xl">
             <CreateNote onCreated={() => { }} />
@@ -87,54 +127,44 @@ export default function DashboardPage() {
                     <p>No notes found</p>
                 </div>
             ) : (
-                <div className="space-y-12">
-                    {notes.some(n => n.isPinned) && (
-                        <section>
-                            <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase mb-4 pl-1">
-                                Pinned
-                            </h2>
-                            <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
-                                {notes
-                                    .filter(n => n.isPinned)
-                                    .map(note => (
-                                        <div key={note.id} className="break-inside-avoid">
-                                            <NoteCard
-                                                note={note}
-                                                onEdit={(n) => openEditModal(n)}
-                                                onPin={handlePin}
-                                                onDelete={handleDelete}
-                                                onUpdate={handleUpdate}
-                                            />
-                                        </div>
-                                    ))}
-                            </div>
-                        </section>
-                    )}
+                <div className="space-y-8">
+                    {/* Tier filter pills */}
+                    <div className="flex gap-2 pl-1">
+                        {filterButtons.map(({ key, label, count }) => (
+                            <button
+                                key={key}
+                                onClick={() => setTierFilter(key)}
+                                className={`
+                                    px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200
+                                    ${tierFilter === key
+                                        ? 'bg-foreground text-background shadow-md'
+                                        : 'bg-black/5 text-muted-foreground hover:bg-black/10 hover:text-foreground'
+                                    }
+                                `}
+                            >
+                                {label}
+                                {count > 0 && (
+                                    <span className={`ml-1.5 text-xs ${tierFilter === key ? 'opacity-70' : 'opacity-50'}`}>
+                                        {count}
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
 
-                    {notes.some(n => !n.isPinned) && (
-                        <section>
-                            {notes.some(n => n.isPinned) && (
-                                <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase mb-4 pl-1">
-                                    Others
-                                </h2>
-                            )}
-                            <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 space-y-4">
-                                {notes
-                                    .filter(n => !n.isPinned)
-                                    .map(note => (
-                                        <div key={note.id} className="break-inside-avoid">
-                                            <NoteCard
-                                                note={note}
-                                                onEdit={(n) => openEditModal(n)}
-                                                onPin={handlePin}
-                                                onDelete={handleDelete}
-                                                onUpdate={handleUpdate}
-                                            />
-                                        </div>
-                                    ))}
-                            </div>
-                        </section>
+                    {/* Pinned — always visible */}
+                    {renderGrid(pinned, '📌 Pinned')}
+
+                    {/* Filtered tiers */}
+                    {tierFilter === 'all' && (
+                        <>
+                            {renderGrid(alarm, '🔥 Alarm')}
+                            {renderGrid(scheduled, '⏰ Scheduled')}
+                            {renderGrid(base, '📄 Notes')}
+                        </>
                     )}
+                    {tierFilter === 'alarm' && renderGrid(alarm, '🔥 Alarm')}
+                    {tierFilter === 'scheduled' && renderGrid(scheduled, '⏰ Scheduled')}
                 </div>
             )}
         </div>
