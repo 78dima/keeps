@@ -107,7 +107,7 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
                     {note.isReminderSent ? (
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100/80 border border-amber-200/60 text-amber-700 text-[10px] font-semibold tracking-wide select-none">
                             <CheckCheck className="h-3 w-3 shrink-0" />
-                            <span>Уведомление отправлено</span>
+                            <span>{note.reminderDate ? format(new Date(note.reminderDate), 'MMM d, HH:mm') : 'Отправлено'}</span>
                         </div>
                     ) : note.reminderDate && (
                         <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-black/5 px-2 py-1 rounded-sm flex items-center gap-1">

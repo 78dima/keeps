@@ -77,16 +77,16 @@ export default function DashboardPage() {
 
     // --- Tier filtering ---
     const pinned = notes.filter(n => n.isPinned);
-    const alarm = notes.filter(n => !n.isPinned && n.wasSentOnce);
-    const scheduled = notes.filter(n => !n.isPinned && !n.wasSentOnce && n.reminderDate);
-    const base = notes.filter(n => !n.isPinned && !n.wasSentOnce && !n.reminderDate);
+    const nonPinned = notes.filter(n => !n.isPinned);
+    const alarm = nonPinned.filter(n => n.reminderDate && n.isReminderSent);
+    const scheduled = nonPinned.filter(n => n.reminderDate && !n.isReminderSent);
 
     const filterButtons: { key: TierFilter; label: string; count: number }[] = [
         { key: 'all', label: 'All', count: notes.length },
         { key: 'alarm', label: '🔥 Alarm', count: alarm.length },
         { key: 'scheduled', label: '⏰ Scheduled', count: scheduled.length },
     ];
-
+    console.log(notes, ' scheduled');
     const renderGrid = (items: NoteResponseDto[], label: string) => {
         if (items.length === 0) return null;
         return (
@@ -155,14 +155,8 @@ export default function DashboardPage() {
                     {/* Pinned — always visible */}
                     {renderGrid(pinned, '📌 Pinned')}
 
-                    {/* Filtered tiers */}
-                    {tierFilter === 'all' && (
-                        <>
-                            {renderGrid(alarm, '🔥 Alarm')}
-                            {renderGrid(scheduled, '⏰ Scheduled')}
-                            {renderGrid(base, '📄 Notes')}
-                        </>
-                    )}
+                    {/* Filtered views */}
+                    {tierFilter === 'all' && renderGrid(nonPinned, '📄 Notes')}
                     {tierFilter === 'alarm' && renderGrid(alarm, '🔥 Alarm')}
                     {tierFilter === 'scheduled' && renderGrid(scheduled, '⏰ Scheduled')}
                 </div>

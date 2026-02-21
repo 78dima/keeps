@@ -64,6 +64,10 @@ let notesReplication: RxReplicationState<NoteDocType, ReplicationCheckpoint> | n
 let tagsReplication: RxReplicationState<TagDocType, ReplicationCheckpoint> | null = null;
 let realtimeChannel: RealtimeChannel | null = null;
 
+// Store event listener references so we can remove them on cancel
+let onVisibilityChange: (() => void) | null = null;
+let onOnline: (() => void) | null = null;
+
 /**
  * Track recently pushed document IDs to ignore their Realtime echoes.
  * Each entry is auto-removed after PUSH_ECHO_TTL_MS.
@@ -88,6 +92,16 @@ export const cancelReplication = async () => {
     if (realtimeChannel) {
         supabase.removeChannel(realtimeChannel);
         realtimeChannel = null;
+    }
+
+    if (onVisibilityChange && typeof window !== 'undefined') {
+        window.removeEventListener('visibilitychange', onVisibilityChange);
+        onVisibilityChange = null;
+    }
+
+    if (onOnline && typeof window !== 'undefined') {
+        window.removeEventListener('online', onOnline);
+        onOnline = null;
     }
 
     recentlyPushedIds.clear();
@@ -292,4 +306,25 @@ export const replicateCollections = async (collections: MyDatabaseCollections, u
         .subscribe((status) => {
             log('Realtime status:', status);
         });
+
+    // --- WAKE & RECONNECT LISTENERS ---
+    // Handle mobile browser backgrounding/freezing
+    if (typeof window !== 'undefined') {
+        onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                log('App woke up (visibilitychange). Forcing reSync...');
+                notesReplication?.reSync();
+                tagsReplication?.reSync();
+            }
+        };
+
+        onOnline = () => {
+            log('App came online. Forcing reSync...');
+            notesReplication?.reSync();
+            tagsReplication?.reSync();
+        };
+
+        window.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('online', onOnline);
+    }
 };

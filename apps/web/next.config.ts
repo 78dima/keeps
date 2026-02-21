@@ -11,6 +11,15 @@ const withPWA = withPWAInit({
   workboxOptions: {
     disableDevLogs: true,
     importScripts: ["/custom-sw.js"],
+    runtimeCaching: [
+      {
+        urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
+        handler: 'NetworkOnly',
+        options: {
+          cacheName: 'supabase-api-bypass',
+        },
+      },
+    ],
   },
 });
 

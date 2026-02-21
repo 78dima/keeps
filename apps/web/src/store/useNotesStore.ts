@@ -57,36 +57,28 @@ interface NotesState {
 }
 
 /**
- * "Pyramid" sorting — 4 tiers.
- *
- * 🔝 Tier 0 — Pinned        (isPinned)
- * 🔥 Tier 1 — Alarm         (wasSentOnce === true) — permanent
- * ⏰ Tier 2 — Scheduled     (reminderDate set, not yet sent)
- * 📄 Tier 3 — Base          (everything else)
- *
- * Within each tier: sorted by updatedAt (newest first).
- * updatedAt is ONLY bumped when tier changes (pin, reminder, notification),
+ * Simplified sorting logic
+ * 1. Pinned (isPinned)
+ * 2. Alarm (wasSentOnce)
+ * 3. Base (updatedAt)
+ * 
+ * updatedAt is ONLY bumped when significant state changes (pin, reminder, notification),
  * NOT on content edits — so notes stay in place when you edit text.
  */
-const getTier = (n: NoteResponseDto): number => {
-    if (n.isPinned) return 0;
-    if (n.wasSentOnce) return 1;
-    if (n.reminderDate && !n.wasSentOnce) return 2;
-    return 3;
-};
-
 const sortNotes = (posts: NoteResponseDto[]) => {
     return [...posts].sort((a, b) => {
-        // 1. Compare tiers
-        const tierDiff = getTier(a) - getTier(b);
-        if (tierDiff !== 0) return tierDiff;
+        // 1. Pinned always at the top
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
 
-        // 2. Within tier — most recently tier-changed first
+        // 2. Alarm notes (wasSentOnce) come next
+        if (a.wasSentOnce !== b.wasSentOnce) return a.wasSentOnce ? -1 : 1;
+
+        // 3. Within same priority — most recently tier-changed first
         const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         if (dateA !== dateB) return dateB - dateA;
 
-        // 3. Stable fallback
+        // 4. Stable fallback
         return a.id.localeCompare(b.id);
     });
 };
@@ -311,19 +303,30 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                 }
             });
 
-            // 3. Only bump updatedAt when tier-relevant fields actually change
-            //    Content/color/tag edits keep the old updatedAt → note stays in place
+            // 3. Заметка прыгает наверх ТОЛЬКО если мы ее только что закрепили/открепили.
+            // Изменение текста, цвета или даты напоминания не меняет позицию заметки на клиенте.
+            // Все прыжки наверх для уведомлений делает только бэкенд (Edge Function).
             const toTs = (d: unknown) => d ? new Date(d as string).getTime() : 0;
 
             const pinChanged = 'isPinned' in note && note.isPinned !== existing.isPinned;
             const reminderChanged = 'reminderDate' in note && toTs(note.reminderDate) !== toTs(existing.reminderDate);
-            const sentChanged = 'isReminderSent' in note && note.isReminderSent !== existing.isReminderSent;
 
-            // Alarm notes (wasSentOnce): NEVER bump updatedAt from frontend.
-            // Only the backend edge function bumps updated_at when notification fires.
-            // Non-alarm notes: bump on any tier change (pin, reminder date, sent status)
-            const isAlarm = existing.wasSentOnce;
-            const shouldBumpUpdatedAt = !isAlarm && (pinChanged || reminderChanged || sentChanged);
+            const shouldBumpUpdatedAt = pinChanged;
+
+            // --- ANTI-RACE CONDITION SAFEGUARD ---
+            // If the database says the reminder was already sent (true), but the frontend payload
+            // is trying to revert it to not sent (false), we ONLY allow this if the user actually
+            // changed the reminderDate. Otherwise, it's a stale frontend state from before the
+            // edge function executed.
+            if (existing.isReminderSent === true && updateData.isReminderSent === false) {
+                if (!reminderChanged) {
+                    // Stale state detected! Preserve the DB's true state.
+                    delete updateData.isReminderSent;
+                    if ('wasSentOnce' in updateData) {
+                        delete updateData.wasSentOnce;
+                    }
+                }
+            }
 
             if (shouldBumpUpdatedAt) {
                 updateData.updatedAt = new Date().toISOString();
