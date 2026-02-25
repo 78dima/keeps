@@ -58,27 +58,24 @@ interface NotesState {
 
 /**
  * Simplified sorting logic
- * 1. Pinned (isPinned)
- * 2. Alarm (wasSentOnce)
- * 3. Base (updatedAt)
+ * 1. Pinned (isPinned) — always at the top
+ * 2. Everything else — sorted by updatedAt desc (newest first)
  * 
- * updatedAt is ONLY bumped when significant state changes (pin, reminder, notification),
- * NOT on content edits — so notes stay in place when you edit text.
+ * New notes get updatedAt = now(), so they appear at the top.
+ * Alarm notifications bump updatedAt from the backend, so they jump to the top too.
+ * Content edits do NOT bump updatedAt — notes stay in place.
  */
 const sortNotes = (posts: NoteResponseDto[]) => {
     return [...posts].sort((a, b) => {
         // 1. Pinned always at the top
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
 
-        // 2. Alarm notes (wasSentOnce) come next
-        if (a.wasSentOnce !== b.wasSentOnce) return a.wasSentOnce ? -1 : 1;
-
-        // 3. Within same priority — most recently tier-changed first
+        // 2. All non-pinned — most recently updated first
         const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         if (dateA !== dateB) return dateB - dateA;
 
-        // 4. Stable fallback
+        // 3. Stable fallback
         return a.id.localeCompare(b.id);
     });
 };

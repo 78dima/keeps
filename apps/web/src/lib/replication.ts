@@ -10,6 +10,7 @@ const IS_DEV = process.env.NODE_ENV !== 'production';
 const RETRY_TIME_MS = 2 * 60_000; // 2 min fallback polling (Realtime handles instant sync)
 const BATCH_SIZE = 50;
 const PUSH_ECHO_TTL_MS = 5_000; // How long to ignore Realtime echoes after a push
+const PERIODIC_SYNC_MS = 15_000; // Force reSync every 15s as safety net for mobile
 
 const log = (...args: unknown[]) => {
     if (IS_DEV) console.log('[Replication]', ...args);
@@ -67,6 +68,7 @@ let realtimeChannel: RealtimeChannel | null = null;
 // Store event listener references so we can remove them on cancel
 let onVisibilityChange: (() => void) | null = null;
 let onOnline: (() => void) | null = null;
+let periodicSyncInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Track recently pushed document IDs to ignore their Realtime echoes.
@@ -102,6 +104,11 @@ export const cancelReplication = async () => {
     if (onOnline && typeof window !== 'undefined') {
         window.removeEventListener('online', onOnline);
         onOnline = null;
+    }
+
+    if (periodicSyncInterval) {
+        clearInterval(periodicSyncInterval);
+        periodicSyncInterval = null;
     }
 
     recentlyPushedIds.clear();
@@ -327,4 +334,11 @@ export const replicateCollections = async (collections: MyDatabaseCollections, u
         window.addEventListener('visibilitychange', onVisibilityChange);
         window.addEventListener('online', onOnline);
     }
+
+    // --- PERIODIC SYNC (safety net for flaky mobile WebSockets) ---
+    periodicSyncInterval = setInterval(() => {
+        log('Periodic reSync triggered');
+        notesReplication?.reSync();
+        tagsReplication?.reSync();
+    }, PERIODIC_SYNC_MS);
 };

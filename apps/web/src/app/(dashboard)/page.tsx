@@ -10,6 +10,11 @@ import { useSearchParams } from 'next/navigation';
 import { useNotesStore } from '@/store/useNotesStore';
 
 type TierFilter = 'all' | 'alarm' | 'scheduled';
+const NOTE_COLORS_MAP: Record<string, string> = {
+    '#f28b82': 'Red', '#fbbc04': 'Orange', '#fff475': 'Yellow', '#ccff90': 'Green',
+    '#a7ffeb': 'Teal', '#cbf0f8': 'Blue', '#aecbfa': 'Indigo', '#d7aefb': 'Purple',
+    '#fdcfe8': 'Pink', '#e6c9a8': 'Brown', '#e8eaed': 'Gray',
+};
 
 export default function DashboardPage() {
     const {
@@ -25,6 +30,7 @@ export default function DashboardPage() {
     } = useNotesStore();
 
     const [tierFilter, setTierFilter] = useState<TierFilter>('all');
+    const [colorFilter, setColorFilter] = useState<string | null>(null);
 
     const { toast } = useToast();
     const searchParams = useSearchParams();
@@ -75,18 +81,23 @@ export default function DashboardPage() {
         return <div className="text-center mt-20">Loading notes...</div>;
     }
 
+    // --- Color filter: extract unique colors used by notes ---
+    const usedColors = [...new Set(notes.map(n => n.color).filter((c): c is string => !!c && c !== '#ffffff'))];
+
+    // --- Apply color filter first ---
+    const colorFiltered = colorFilter ? notes.filter(n => n.color === colorFilter) : notes;
+
     // --- Tier filtering ---
-    const pinned = notes.filter(n => n.isPinned);
-    const nonPinned = notes.filter(n => !n.isPinned);
+    const pinned = colorFiltered.filter(n => n.isPinned);
+    const nonPinned = colorFiltered.filter(n => !n.isPinned);
     const alarm = nonPinned.filter(n => n.reminderDate && n.isReminderSent);
     const scheduled = nonPinned.filter(n => n.reminderDate && !n.isReminderSent);
 
     const filterButtons: { key: TierFilter; label: string; count: number }[] = [
-        { key: 'all', label: 'All', count: notes.length },
+        { key: 'all', label: 'All', count: colorFiltered.length },
         { key: 'alarm', label: '🔥 Alarm', count: alarm.length },
         { key: 'scheduled', label: '⏰ Scheduled', count: scheduled.length },
     ];
-    console.log(notes, ' scheduled');
     const renderGrid = (items: NoteResponseDto[], label: string) => {
         if (items.length === 0) return null;
         return (
@@ -129,7 +140,7 @@ export default function DashboardPage() {
             ) : (
                 <div className="space-y-8">
                     {/* Tier filter pills */}
-                    <div className="flex gap-2 pl-1">
+                    <div className="flex flex-wrap gap-2 pl-1">
                         {filterButtons.map(({ key, label, count }) => (
                             <button
                                 key={key}
@@ -151,6 +162,33 @@ export default function DashboardPage() {
                             </button>
                         ))}
                     </div>
+
+                    {/* Color filter pills */}
+                    {usedColors.length > 0 && (
+                        <div className="flex gap-2 pl-1 items-center">
+                            <button
+                                onClick={() => setColorFilter(null)}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${colorFilter === null
+                                        ? 'bg-foreground text-background shadow-md'
+                                        : 'bg-black/5 text-muted-foreground hover:bg-black/10'
+                                    }`}
+                            >
+                                All colors
+                            </button>
+                            {usedColors.map(c => (
+                                <button
+                                    key={c}
+                                    onClick={() => setColorFilter(colorFilter === c ? null : c)}
+                                    className={`w-6 h-6 rounded-full border-2 transition-all duration-200 hover:scale-110 ${colorFilter === c
+                                            ? 'ring-2 ring-black/30 scale-110 shadow-md border-white/70'
+                                            : 'border-black/10 hover:shadow-md'
+                                        }`}
+                                    style={{ backgroundColor: c }}
+                                    title={NOTE_COLORS_MAP[c] || c}
+                                />
+                            ))}
+                        </div>
+                    )}
 
                     {/* Pinned — always visible */}
                     {renderGrid(pinned, '📌 Pinned')}
