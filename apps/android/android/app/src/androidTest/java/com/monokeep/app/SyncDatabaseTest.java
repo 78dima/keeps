@@ -90,7 +90,7 @@ public class SyncDatabaseTest {
             old.setVersion(1);
         }
         db=new NoteDatabase(context,"test-sync.db");
-        db.adoptGuestNotes(OWNER);
+        // Session was persisted before a crash, but adoption never ran: list resumes it.
         Map<String,Object> migrated=db.list().get(0);
         assertEquals("Привет",migrated.get("title"));
         assertEquals(2L,migrated.get("updatedAt"));

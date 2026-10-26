@@ -142,6 +142,7 @@ public final class MainActivity extends FlutterActivity {
     }
     @Override protected void onPause() {
         SyncRealtime.stop();
+        SyncEngine.request(getApplicationContext());
         super.onPause();
     }
     private void network(MethodChannel.Result result, Work work) {

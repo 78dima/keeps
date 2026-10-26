@@ -291,6 +291,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
             if (note.reminderDate !== undefined) {
                 updateData.reminderDate = note.reminderDate ? new Date(note.reminderDate).toISOString() : null;
+                updateData.isReminderSent = updateData.reminderDate !== (existing.reminderDate || null) ? false : existing.isReminderSent;
+            } else {
+                delete updateData.isReminderSent;
             }
 
             // 4. Handle Tags: Ensure they are correctly formatted

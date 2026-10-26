@@ -27,3 +27,15 @@ test('clock calibration affects new edits only and a backward clock keeps local 
     assert.ok(Date.parse(next.updatedAt)>Date.parse(before.updatedAt));
     assert.equal(before.updatedAt,original); assert.notEqual(next.editId,before.editId);
 });
+
+test('Taipei reminder survives web edit without an eight-hour shift or lost seconds', async () => {
+    const { localDateTimeInput, dateFromInput } = await import('../src/lib/date-input.ts');
+    const timezone = process.env.TZ;
+    process.env.TZ = 'Asia/Taipei';
+    try {
+        const instant = '2026-10-27T02:00:27.123Z';
+        assert.equal(localDateTimeInput(instant),'2026-10-27T10:00');
+        assert.equal(dateFromInput(localDateTimeInput(instant),instant).toISOString(),instant);
+        assert.equal(dateFromInput('2026-10-27T11:00',instant).toISOString(),'2026-10-27T03:00:00.000Z');
+    } finally { if (timezone === undefined) delete process.env.TZ; else process.env.TZ = timezone; }
+});

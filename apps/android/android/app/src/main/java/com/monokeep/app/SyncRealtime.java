@@ -38,13 +38,15 @@ final class SyncRealtime {
                 synchronized (SyncRealtime.class) {
                     if (!foreground || generation!=expected) return;
                     socket=SyncEngine.HTTP.newWebSocket(new Request.Builder().url(url).build(),new WebSocketListener() {
+                        private String joinRef = "";
+                        private long lastCatchUp = android.os.SystemClock.elapsedRealtime();
                         @Override public void onOpen(WebSocket ws,Response response) {
                             synchronized (SyncRealtime.class) {
                                 if (generation!=expected || !foreground) { ws.cancel(); return; }
                                 try {
                                     JSONArray changes=new JSONArray().put(new JSONObject().put("event","*").put("schema","public")
                                         .put("table","notes").put("filter","user_id=eq."+owner));
-                                    send(ws,"realtime:notes-sync","phx_join",new JSONObject().put("access_token",token)
+                                    joinRef = send(ws,"realtime:notes-sync","phx_join",new JSONObject().put("access_token",token)
                                         .put("config",new JSONObject().put("postgres_changes",changes).put("private",false)));
                                     heartbeat=TIMER.scheduleAtFixedRate(() -> {
                                         SyncEngine.NETWORK.execute(() -> {
@@ -54,7 +56,10 @@ final class SyncRealtime {
                                             try {
                                                 send(ws,"phoenix","heartbeat",new JSONObject());
                                                 send(ws,"realtime:notes-sync","access_token",new JSONObject().put("access_token",SyncEngine.accessToken(c)));
-                                                SyncEngine.request(c); // catch up even if a channel silently misses an event
+                                                long now = android.os.SystemClock.elapsedRealtime();
+                                                if (now - lastCatchUp >= 60000) {
+                                                    lastCatchUp = now; SyncEngine.request(c);
+                                                }
                                             } catch (Exception e) { ws.cancel(); retry(c,expected); }
                                         });
                                     },25,25,TimeUnit.SECONDS);
@@ -64,7 +69,12 @@ final class SyncRealtime {
                         @Override public void onMessage(WebSocket ws,String text) {
                             try {
                                 JSONObject message=new JSONObject(text); String event=message.optString("event");
-                                if ("postgres_changes".equals(event) || "phx_reply".equals(event)) SyncEngine.request(c);
+                                synchronized (SyncRealtime.class) { if (generation != expected || !foreground) return; }
+                                if ("postgres_changes".equals(event)) SyncEngine.request(c);
+                                if ("phx_reply".equals(event) && joinRef.equals(message.optString("ref"))) {
+                                    if ("ok".equals(message.getJSONObject("payload").optString("status"))) SyncEngine.request(c);
+                                    else { ws.cancel(); retry(c,expected); }
+                                }
                                 if ("phx_error".equals(event) || "phx_close".equals(event)) { ws.cancel(); retry(c,expected); }
                             } catch (Exception ignored) { retry(c,expected); }
                         }
@@ -81,7 +91,9 @@ final class SyncRealtime {
         if (reconnect!=null && !reconnect.isDone()) return;
         reconnect=TIMER.schedule(() -> connect(c,expected),10,TimeUnit.SECONDS);
     }
-    private static synchronized void send(WebSocket ws,String topic,String event,JSONObject payload) throws Exception {
-        ws.send(new JSONObject().put("topic",topic).put("event",event).put("payload",payload).put("ref",Long.toString(++ref)).toString());
+    private static synchronized String send(WebSocket ws,String topic,String event,JSONObject payload) throws Exception {
+        String reference = Long.toString(++ref);
+        ws.send(new JSONObject().put("topic",topic).put("event",event).put("payload",payload).put("ref",reference).toString());
+        return reference;
     }
 }

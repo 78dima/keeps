@@ -25,6 +25,9 @@ public final class SyncEngine {
     private static volatile String error = "";
     private static volatile boolean running;
     private static final java.util.concurrent.atomic.AtomicBoolean foregroundQueued = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.atomic.AtomicBoolean foregroundDirty = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor();
+    private static final java.util.concurrent.atomic.AtomicBoolean backgroundQueued = new java.util.concurrent.atomic.AtomicBoolean();
     private static final Object LOCK = new Object();
     static synchronized JSONObject config(Context c) throws Exception {
         if (config == null) {
@@ -112,17 +115,43 @@ public final class SyncEngine {
     }
     public static void request(Context c) {
         if (SyncSession.owner(c).isEmpty()) return;
-        if (SyncRealtime.isForeground() && foregroundQueued.compareAndSet(false,true)) {
-            NETWORK.execute(() -> {
-                try { synchronize(c.getApplicationContext()); }
-                catch (Exception ignored) { /* WorkManager persists and retries this same work. */ }
-                finally { foregroundQueued.set(false); }
-            });
-        }
-        WorkManager.getInstance(c).enqueueUniqueWork("monokeep-sync-now", ExistingWorkPolicy.APPEND_OR_REPLACE,
-            new OneTimeWorkRequest.Builder(SyncWorker.class)
-                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build());
+        if (!SyncRealtime.isForeground()) { background(c); return; }
+        foregroundDirty.set(true);
+        if (!foregroundQueued.compareAndSet(false,true)) return;
+        NETWORK.execute(() -> {
+            boolean succeeded = false;
+            try {
+                do {
+                    foregroundDirty.set(false);
+                    synchronize(c.getApplicationContext());
+                } while (foregroundDirty.get() && SyncRealtime.isForeground());
+                succeeded = true;
+            } catch (Exception ignored) { background(c); }
+            finally {
+                foregroundQueued.set(false);
+                // Close the race between the last dirty check and releasing the queue flag.
+                if (succeeded && foregroundDirty.get()) request(c);
+            }
+        });
+    }
+    private static void background(Context c) {
+        if (!backgroundQueued.compareAndSet(false,true)) return;
+        SCHEDULER.schedule(() -> {
+            backgroundQueued.set(false);
+            if (SyncSession.owner(c).isEmpty()) return;
+            try {
+                WorkManager manager=WorkManager.getInstance(c);
+                // At most one running worker plus one successor. An unstarted worker will read
+                // all persisted edits; a running worker gets a successor so the final ACK race is safe.
+                for (WorkInfo info : manager.getWorkInfosForUniqueWork("monokeep-sync-now").get()) {
+                    if (info.getState()==WorkInfo.State.ENQUEUED || info.getState()==WorkInfo.State.BLOCKED) return;
+                }
+                manager.enqueueUniqueWork("monokeep-sync-now", ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    new OneTimeWorkRequest.Builder(SyncWorker.class)
+                        .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build()).getResult().get();
+            } catch (Exception ignored) { /* The durable periodic worker still catches up. */ }
+        },300,TimeUnit.MILLISECONDS);
     }
     static void synchronize(Context c) throws Exception {
         synchronized (LOCK) {
@@ -131,6 +160,8 @@ public final class SyncEngine {
             running = true; changed(c);
             try {
                 NoteDatabase db = NoteDatabase.get(c);
+                // Resume a first-login adoption interrupted after the encrypted session was saved.
+                NoteDatabase.IO.submit(() -> db.adoptGuestNotes(owner)).get();
                 // Bound each worker run. Remaining batches are durable and continued by a new worker.
                 for (int round=0; round<20; round++) {
                     JSONArray pending = db.pending(owner);

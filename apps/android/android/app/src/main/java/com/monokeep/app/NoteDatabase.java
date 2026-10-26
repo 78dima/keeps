@@ -75,6 +75,12 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     }
 
     public List<Map<String, Object>> list() {
+        String owner = SyncSession.owner(context);
+        if (!owner.isEmpty()) {
+            try (Cursor guest = getReadableDatabase().rawQuery("SELECT 1 FROM notes WHERE owner_id = '' LIMIT 1", null)) {
+                if (guest.moveToFirst()) adoptGuestNotes(owner);
+            }
+        }
         List<Map<String, Object>> result = new ArrayList<>();
         try (Cursor cursor = getReadableDatabase().query("notes", null, "owner_id = ? AND sync_deleted = 0", new String[]{SyncSession.owner(context)}, null, null,
                 "reminder_sent DESC, updated_at DESC, id ASC")) {

@@ -50,6 +50,10 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.google.firebase:firebase-messaging:24.1.1'
     testImplementation 'junit:junit:4.13.2'
+    // Flutter integration_test brings an older runner into debugRuntimeClasspath.
+    // Align both classpaths for AGP's consistent dependency resolution.
+    debugImplementation 'androidx.test:runner:1.6.2'
+    debugImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test:runner:1.6.2'
 }

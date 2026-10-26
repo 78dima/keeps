@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { CalendarIcon } from 'lucide-react';
 import { TagInput } from '@/components/ui/tag-input';
+import { localDateTimeInput, dateFromInput } from '@/lib/date-input';
 import { useNotesStore } from '@/store/useNotesStore';
 
 interface EditNoteDialogProps {
@@ -30,7 +31,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
             setTitle(note.title);
             setContent(note.content);
             setColor(note.color || null);
-            setReminder(note.reminderDate ? new Date(note.reminderDate).toISOString().slice(0, 16) : '');
+            setReminder(localDateTimeInput(note.reminderDate));
             // Convert Tag objects to string array for TagInput
             setTags(note.tags ? note.tags.map(t => t.name) : []);
         }
@@ -48,7 +49,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                 title,
                 content,
                 color,
-                reminderDate: reminder ? new Date(reminder) : null,
+                reminderDate: dateFromInput(reminder, note.reminderDate),
                 // Reset reminder flag when date is cleared or changed
                 isReminderSent: reminder ? note.isReminderSent : false,
                 tags: tags
