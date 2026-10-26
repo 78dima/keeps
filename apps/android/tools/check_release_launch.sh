@@ -4,7 +4,9 @@ set -euo pipefail
 MONOKEEP_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 MONOKEEP_APK="$MONOKEEP_ROOT/dist/monokeep-release.apk"
 if [[ ! -f "$MONOKEEP_APK" ]]; then exit 0; fi
-adb uninstall com.monokeep.app
+if adb shell pm path com.monokeep.app | tr -d '\r' | grep -q '^package:'; then
+  adb uninstall com.monokeep.app
+fi
 adb install "$MONOKEEP_APK"
 adb logcat -b crash -c
 adb shell am start -W -n com.monokeep.app/.MainActivity

@@ -15,10 +15,15 @@ on:
         type: choice
         options: [release, debug]
         default: release
+      release_artifact_run:
+        description: 'Optional existing run ID: verify and launch its release APK without rebuilding'
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
   web:
+    if: ${{ !inputs.release_artifact_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -53,6 +58,7 @@ jobs:
             dist/monokeep-web.tar.gz.sha256
           if-no-files-found: error
   apk:
+    if: ${{ !inputs.release_artifact_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
@@ -140,6 +146,58 @@ jobs:
           path: apps/android/build/app/reports/androidTests/
       - name: Upload release launch evidence
         if: always() && (inputs.mode || 'release') == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-launch-check
+          path: |
+            apps/android/dist/release-crash.log
+            apps/android/dist/release-home.png
+  release-check:
+    if: ${{ inputs.release_artifact_run != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: monokeep-android-release
+          path: apps/android/dist
+          run-id: ${{ inputs.release_artifact_run }}
+          github-token: ${{ github.token }}
+      - name: Verify existing release artifact
+        working-directory: apps/android
+        run: |
+          sdkmanager 'build-tools;35.0.0'
+          cd dist && sha256sum -c monokeep-release.apk.sha256 && cd ..
+          ANDROID_SDK_ROOT="$ANDROID_HOME" python3 tools/verify_apk.py dist/monokeep-release.apk release
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch the actual release APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          disk-size: 2048M
+          working-directory: apps/android
+          script: bash tools/check_release_launch.sh
+      - name: Upload release launch evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: release-launch-check

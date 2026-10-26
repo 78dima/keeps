@@ -7,6 +7,11 @@ if [[ "$MONOKEEP_BUILD_MODE" != release && "$MONOKEEP_BUILD_MODE" != debug ]]; t
   echo 'MONOKEEP_BUILD_MODE must be release or debug.' >&2
   exit 1
 fi
+# This app has a permanent signing identity. Never generate a replacement on a clean clone.
+if [[ "$MONOKEEP_BUILD_MODE" == release && ! -f android/key.properties ]]; then
+  echo 'Restore the permanent release keystore and android/key.properties from the private signing backup, or use the configured GitHub Actions release build.' >&2
+  exit 1
+fi
 if [[ -d .toolchain/flutter/bin ]]; then export PATH="$MONOKEEP_ROOT/.toolchain/flutter/bin:$PATH"; fi
 if [[ -d .toolchain/jdk ]]; then export JAVA_HOME="$MONOKEEP_ROOT/.toolchain/jdk"; export PATH="$JAVA_HOME/bin:$PATH"; fi
 if [[ -d .toolchain/android-sdk ]]; then export ANDROID_HOME="$MONOKEEP_ROOT/.toolchain/android-sdk"; fi
@@ -32,29 +37,6 @@ if [[ ! -f .toolchain/monokeep-debug.keystore ]]; then
     -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Android Debug, O=MonoKeep, C=US')
 fi
 
-# The key persists across builds so APK updates preserve the installed app and its notes.
-if [[ "$MONOKEEP_BUILD_MODE" == release && ! -f android/key.properties ]]; then
-  umask 077
-  mkdir -p .toolchain
-  if [[ -f .toolchain/monokeep-release.jks ]]; then
-    echo 'Existing release key found without key.properties. Restore its configuration; refusing to overwrite it.' >&2
-    exit 1
-  fi
-  MONOKEEP_SIGN_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
-  export MONOKEEP_SIGN_PASSWORD
-  keytool -genkeypair -noprompt -keystore .toolchain/monokeep-release.jks -storetype JKS \
-    -alias monokeep -keyalg RSA -keysize 3072 -validity 10000 \
-    -storepass:env MONOKEEP_SIGN_PASSWORD -keypass:env MONOKEEP_SIGN_PASSWORD \
-    -dname 'CN=MonoKeep, OU=Android, O=MonoKeep'
-  python3 - <<'PY'
-import os, pathlib
-password = os.environ['MONOKEEP_SIGN_PASSWORD']
-pathlib.Path('android/key.properties').write_text(
-    f'storeFile=../.toolchain/monokeep-release.jks\nkeyAlias=monokeep\nstorePassword={password}\nkeyPassword={password}\n'
-)
-PY
-  unset MONOKEEP_SIGN_PASSWORD
-fi
 
 flutter pub get
 flutter analyze
