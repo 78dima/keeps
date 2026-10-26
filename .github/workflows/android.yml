@@ -4,6 +4,7 @@ on:
     branches: ['codex/android-apk']
     paths:
       - 'apps/android/**'
+      - '!apps/android/**/*.md'
       - 'apps/web/**'
       - 'supabase/**'
       - '.github/workflows/android.yml'
@@ -51,8 +52,8 @@ jobs:
       # Production releases use the separately managed repository signing secrets below.
       - uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: monokeep-debug-signing-v1
+          path: apps/android/.toolchain/monokeep-debug.keystore
+          key: monokeep-debug-signing-v2
       - uses: android-actions/setup-android@v3
         with:
           # The action defaults to the retired SDK package "tools".

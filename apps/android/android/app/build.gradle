@@ -26,6 +26,13 @@ android {
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     signingConfigs {
+        debug {
+            storeFile rootProject.file('../.toolchain/monokeep-debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+            storeType 'JKS'
+        }
         if (signingFile.exists()) {
             release {
                 keyAlias signing['keyAlias']
