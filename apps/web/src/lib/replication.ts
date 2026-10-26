@@ -3,7 +3,7 @@ import type { RxDocumentData, RxReplicationWriteToMasterRow } from 'rxdb';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { MyDatabaseCollections, NoteDocType, TagDocType } from './db';
 import { supabase } from './supabase';
-import { calibrateClock, compareEdits, ZERO_EDIT } from './sync-protocol';
+import { calibrateClock, compareEdits, sameLegacyNote, ZERO_EDIT } from './sync-protocol';
 
 type Checkpoint = { revision: string };
 type Synced = NoteDocType | TagDocType;
@@ -96,6 +96,7 @@ export function createSyncHandlers<T extends Synced>(entity: string, userId: str
                 return (data.rows as Row[]).flatMap((row, i) => {
                     const remote = fromServer<T>(entity, row), local = own[i].newDocumentState;
                     return compareEdits(remote, local) > 0 ||
+                        (entity === 'notes' && (local.editId || ZERO_EDIT) === ZERO_EDIT && (compareEdits(remote, local) !== 0 || !sameLegacyNote(remote, local))) ||
                         ('isReminderSent' in remote && (remote.isReminderSent !== (local as NoteDocType).isReminderSent || remote.sortAt !== (local as NoteDocType).sortAt || remote.wasSentOnce !== (local as NoteDocType).wasSentOnce))
                         ? [remote] : [];
                 });

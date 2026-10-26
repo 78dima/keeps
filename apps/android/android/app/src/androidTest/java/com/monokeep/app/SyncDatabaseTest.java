@@ -117,7 +117,13 @@ public class SyncDatabaseTest {
         assertEquals(false,rearmed.get("isReminderSent"));
         assertEquals(1000L,rearmed.get("reminderDate"));
         assertNotEquals(disabled.get("reminderVersion"),rearmed.get("reminderVersion"));
-        JSONObject remote=db.pending(OWNER).getJSONObject(0);
+        JSONObject remote=null;
+        JSONArray pending=db.pending(OWNER);
+        for(int i=0;i<pending.length();i++) {
+            JSONObject candidate=pending.getJSONObject(i);
+            if(id.equals(candidate.getString("id"))) remote=candidate;
+        }
+        assertNotNull("The rearmed note must be in the outbox",remote);
         db.markReminderSent(id,1000L);
         remote.put("reminder_version",UUID.randomUUID().toString())
             .put("edit_id",UUID.randomUUID().toString())

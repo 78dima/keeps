@@ -31,11 +31,27 @@ jobs:
       - run: npm run build --workspace=@monokeep/shared
       - run: node --experimental-strip-types --test apps/web/tests/*.test.mjs
       - run: npx tsc --noEmit -p apps/web/tsconfig.json
-      - name: Web production build
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: https://lhjbeaaglpimzkfgrqdp.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'build-only-placeholder' }}
-        run: npm run build --workspace=@monokeep/web
+      - name: Build deployable web bundle
+        run: node apps/web/deploy/build-bundle.mjs
+      - name: Verify web bundle in its runtime container
+        run: |
+          docker build -t monokeep-web-review dist/web-bundle
+          docker run -d --name monokeep-web-review -p 127.0.0.1:3300:3000 monokeep-web-review
+          trap 'docker rm -f monokeep-web-review' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3300/login -o /tmp/monokeep-login.html; then break; fi
+            sleep 2
+          done
+          test -s /tmp/monokeep-login.html
+          curl --fail --silent http://127.0.0.1:3300/sw.js | grep -q 'notificationclick'
+      - name: Upload web deployment bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: monokeep-web-bundle
+          path: |
+            dist/monokeep-web.tar.gz
+            dist/monokeep-web.tar.gz.sha256
+          if-no-files-found: error
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 40

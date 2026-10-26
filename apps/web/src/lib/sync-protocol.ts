@@ -45,3 +45,9 @@ export function noteEditMetadata(existing: ReminderState, patch: Partial<Reminde
         isReminderSent: intentChanged ? !enabled : existing.isReminderSent || false,
     };
 }
+
+
+export function sameLegacyNote(a: object, b: object) {
+    const fields = ['title','content','color','isPinned','isArchived','isDeleted','syncDeleted','reminderDate','reminderEnabled','reminderVersion','createdAt','tags'];
+    return fields.every(key => JSON.stringify((a as Record<string, unknown>)[key] ?? null) === JSON.stringify((b as Record<string, unknown>)[key] ?? null));
+}

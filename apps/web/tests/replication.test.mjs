@@ -32,7 +32,8 @@ function server() {
             const accepted = args.documents.map(doc => {
                 assert.equal(doc.user_id, owner);
                 const old = rows.get(doc.id);
-                if (!old || compareEdits(snakeVersion(doc), snakeVersion(old)) > 0) {
+                if (!old || (doc.edit_id !== '00000000-0000-0000-0000-000000000000' && compareEdits(snakeVersion(doc), snakeVersion(old)) > 0)) {
+                    revision=Math.max(revision,...[...rows.values()].map(row=>Number(row.sync_revision)));
                     rows.set(doc.id, { ...doc, sort_at:doc.sort_at||doc.updated_at,was_sent_once:old?.was_sent_once||false,sync_revision: String(++revision), is_reminder_sent: old?.is_reminder_sent || false });
                 }
                 return { ...rows.get(doc.id) };
@@ -125,4 +126,19 @@ test('production v5 schema migrates in place and preserves an exact local recove
         assert.equal(copy.userId,owner);
         assert.equal(JSON.parse(copy.snapshot).title,'Unsent local draft');
     } finally { await db.remove(); }
+});
+
+
+for (const legacyTime of ['00','05']) test(`ZERO-version legacy content at 10:${legacyTime} resolves canonically without blocking another note`, {timeout:10000}, async () => {
+    const remote=server(), web=await device(remote,'legacy');
+    const local={...document('legacy'),...version(legacyTime,0),isPinned:true,title:'Unsent local',editId:'00000000-0000-0000-0000-000000000000',
+        sortAt:version('00',1).updatedAt,reminderEnabled:true,reminderVersion:'00000000-0000-0000-0000-000000000000',wasSentOnce:false};
+    const canonical=Object.fromEntries(Object.entries(local).map(([key,value])=>[key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),value]));
+    remote.rows.set('legacy',{...canonical,updated_at:version('00',0).updatedAt,is_pinned:false,title:'Canonical cloud',sync_revision:'1'});
+    await web.db.notes.insert(local); await web.db.notes.insert({...document('new'),'title':'New edit'});
+    const r=web.connect();
+    try { await settled(r);
+        assert.equal((await web.db.notes.findOne('legacy').exec()).title,'Canonical cloud');
+        assert.equal(remote.rows.get('new').title,'New edit');
+    } finally { await r.cancel(); await web.db.remove(); }
 });

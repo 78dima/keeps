@@ -7,7 +7,7 @@ import {
     addRxPlugin
 } from 'rxdb';
 import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
-import { compareEdits, resolveEdit, ZERO_EDIT } from './sync-protocol';
+import { compareEdits, resolveEdit, sameLegacyNote, ZERO_EDIT } from './sync-protocol';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
@@ -123,8 +123,8 @@ export type NoteDocType = {
 };
 
 export const noteConflictHandler: RxConflictHandler<NoteDocType> = {
-    isEqual: (a, b) => compareEdits(a, b) === 0 && a.isReminderSent === b.isReminderSent && a.sortAt === b.sortAt && a.wasSentOnce === b.wasSentOnce,
-    resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState),
+    isEqual: (a, b) => compareEdits(a, b) === 0 && a.isReminderSent === b.isReminderSent && a.sortAt === b.sortAt && a.wasSentOnce === b.wasSentOnce && ((a.editId || ZERO_EDIT) !== ZERO_EDIT || sameLegacyNote(a, b)),
+    resolve: async (input) => (input.newDocumentState.editId || ZERO_EDIT) === ZERO_EDIT ? input.realMasterState : resolveEdit(input.newDocumentState, input.realMasterState),
 };
 
 export type TagDocType = {

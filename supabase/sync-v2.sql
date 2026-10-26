@@ -37,7 +37,8 @@ create table if not exists public.note_conflicts (
   edited_at timestamptz not null,
   snapshot jsonb not null,
   recorded_at timestamptz not null default now(),
-  primary key (user_id, note_id, edited_at, edit_id)
+  snapshot_hash text generated always as (md5(snapshot::text)) stored,
+  primary key (user_id, note_id, edited_at, edit_id, snapshot_hash)
 );
 alter table public.note_conflicts enable row level security;
 create policy own_conflicts on public.note_conflicts for all to authenticated
@@ -56,7 +57,6 @@ begin
     if new.user_id <> old.user_id then raise exception 'Cannot change note owner'; end if;
     if tg_table_name = 'notes' then
       metadata_only := current_user in ('postgres','service_role') and new.edit_id = old.edit_id
-        and (new.is_reminder_sent, new.was_sent_once, new.sort_at) is distinct from (old.is_reminder_sent, old.was_sent_once, old.sort_at)
         and (to_jsonb(new) - array['is_reminder_sent','was_sent_once','sync_revision','updated_at','sort_at'])
           = (to_jsonb(old) - array['is_reminder_sent','was_sent_once','sync_revision','updated_at','sort_at']);
       if metadata_only then
@@ -132,6 +132,15 @@ begin
       if note.id is null or note.updated_at is null then raise exception 'Missing identity or edit time'; end if;
       note.edit_id := coalesce(note.edit_id, '00000000-0000-0000-0000-000000000000'::uuid);
       select to_jsonb(n) into current_row from public.notes n where id=note.id and user_id=owner for update;
+      -- Old v5 clients never timestamped content edits. Preserve the local snapshot,
+      -- return the authoritative row, and let the remaining batch progress. Never
+      -- invent a new timestamp that would let a stale cached note win over new edits.
+      if note.edit_id = '00000000-0000-0000-0000-000000000000' and current_row is not null then
+        insert into public.note_conflicts(user_id,note_id,edit_id,edited_at,snapshot)
+          values(owner,note.id,note.edit_id,note.updated_at,doc) on conflict do nothing;
+        result_rows := result_rows || jsonb_build_array(current_row || jsonb_build_object('sync_revision', current_row->>'sync_revision'));
+        continue;
+      end if;
       -- Preserve both sides of competing edits for recovery, without changing their edit time.
       if current_row is not null and (current_row->>'edit_id',current_row->>'updated_at') is distinct from (doc->>'edit_id',doc->>'updated_at') then
         insert into public.note_conflicts(user_id,note_id,edit_id,edited_at,snapshot)
