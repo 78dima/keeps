@@ -77,6 +77,7 @@ const sortNotes = (posts: NoteResponseDto[]) => {
 let dbSubscription: Subscription | null = null;
 let authSubscription: { unsubscribe: () => void } | null = null;
 let isInitialized = false;
+let authVersion = 0;
 
 export const useNotesStore = create<NotesState>((set, get) => ({
     notes: [],
@@ -110,31 +111,20 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
             // Listen for auth changes
             const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                const nextUserId = session?.user?.id ?? '';
+                if (nextUserId === get().userId) return;
+                const version = ++authVersion;
+                set({ userId: nextUserId, notes: [], selectedNote: null, isEditModalOpen: false });
+                dbSubscription?.unsubscribe(); dbSubscription = null;
+                // Return from the SDK callback before awaiting any auth/replication operations.
                 setTimeout(() => { void (async () => {
-                const prevUserId = get().userId;
-                const newUserId = session?.user?.id ?? '';
-
-                if (newUserId && newUserId !== prevUserId) {
-                    // New user logged in (or token refreshed with different user)
-                    set({ userId: newUserId, notes: [], selectedNote: null, isEditModalOpen: false });
-
-                    // Restart replication for new user
-                    const db = await getDatabase();
-                    await replicateCollections(db.collections, newUserId);
-
-                    // Reload current view
-                    const { viewMode } = get();
-                    get().setViewMode(viewMode);
-                } else if (!newUserId && prevUserId) {
-                    // User logged out
-                    set({ userId: '', notes: [], selectedNote: null, isEditModalOpen: false });
+                    if (version !== authVersion) return;
                     await cancelReplication();
-
-                    if (dbSubscription) {
-                        dbSubscription.unsubscribe();
-                        dbSubscription = null;
-                    }
-                }
+                    if (!nextUserId || version !== authVersion) return;
+                    const db = await getDatabase();
+                    if (version !== authVersion) return;
+                    await replicateCollections(db.collections, nextUserId);
+                    if (version === authVersion) await get().setViewMode(get().viewMode);
                 })().catch(error => console.error('[Auth sync]', error)); }, 0);
             });
             authSubscription = subscription;

@@ -74,7 +74,7 @@ export default function DashboardLayout({
 
 
     const handleLogout = () => {
-        void supabase.auth.signOut();
+        void supabase.auth.signOut({ scope: 'local' });
         localStorage.removeItem('token');
         router.push('/login');
     };

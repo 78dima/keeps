@@ -9,14 +9,16 @@ alter table public.notes add column if not exists edit_id uuid not null default 
 alter table public.notes add column if not exists sync_revision bigint not null default 0;
 alter table public.tags add column if not exists edit_id uuid not null default '00000000-0000-0000-0000-000000000000';
 alter table public.tags add column if not exists sync_revision bigint not null default 0;
+-- Remove timestamp triggers BEFORE backfill: migration must not look like a user edit.
+drop trigger if exists update_notes_updated_at on public.notes;
+drop trigger if exists update_tags_updated_at on public.tags;
+
 -- Existing data stays intact and participates in the first full pull.
 update public.notes set sync_revision = nextval('public.monokeep_sync_revision') where sync_revision = 0;
 update public.tags set sync_revision = nextval('public.monokeep_sync_revision') where sync_revision = 0;
 create index if not exists notes_sync_cursor on public.notes(user_id, sync_revision);
 create index if not exists tags_sync_cursor on public.tags(user_id, sync_revision);
 
-drop trigger if exists update_notes_updated_at on public.notes;
-drop trigger if exists update_tags_updated_at on public.tags;
 
 create table if not exists public.note_conflicts (
   user_id uuid not null references auth.users(id) on delete cascade,

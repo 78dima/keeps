@@ -136,14 +136,14 @@ public final class SyncEngine {
                     JSONArray pending = db.pending(owner);
                     if (pending.length()==0) break;
                     JSONObject response = call(c,"/rest/v1/rpc/sync_push",new JSONObject().put("entity","notes").put("documents",pending),accessToken(c));
-                    db.accept(owner,response.getJSONArray("rows"),null);
+                    acceptOnStorageThread(db,owner,response.getJSONArray("rows"),null);
                 }
                 String checkpoint = db.checkpoint(owner);
                 for (int round=0; round<100; round++) {
                     JSONObject response = call(c,"/rest/v1/rpc/sync_pull",new JSONObject().put("entity","notes").put("after_revision",checkpoint).put("page_size",100),accessToken(c));
                     JSONArray rows = response.getJSONArray("rows");
                     if (rows.length()>0) checkpoint = rows.getJSONObject(rows.length()-1).getString("sync_revision");
-                    db.accept(owner,rows,checkpoint);
+                    acceptOnStorageThread(db,owner,rows,checkpoint);
                     if (rows.length()<100) break;
                     if (round==99) request(c);
                 }
@@ -158,6 +158,12 @@ public final class SyncEngine {
                 NoteDatabase.IO.execute(() -> { ReminderScheduler.rescheduleAll(c); changed(c); });
             }
         }
+    }
+    private static void acceptOnStorageThread(NoteDatabase db,String owner,JSONArray rows,String revision) throws Exception {
+        NoteDatabase.IO.submit(() -> {
+            try { db.accept(owner,rows,revision); }
+            catch (Exception e) { throw new RuntimeException(e); }
+        }).get();
     }
     private static void registerDevice(Context c,String owner) throws Exception {
         String token = c.getSharedPreferences("sync-device",0).getString("fcm_token","");
