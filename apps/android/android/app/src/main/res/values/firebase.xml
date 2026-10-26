@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Public Firebase client settings. FirebaseInitProvider reads these before any
+     Activity or background service starts. No server credentials belong here.
+     https://firebase.google.com/docs/projects/multiprojects -->
+<resources>
+    <string name="google_app_id" translatable="false">1:433473461790:android:a00f04b6339c13c6ec180f</string>
+    <string name="gcm_defaultSenderId" translatable="false">433473461790</string>
+    <string name="google_api_key" translatable="false">AIzaSyDFUCTazjVAlGsLjyTAbEEWXLcFCDAaXnY</string>
+    <string name="project_id" translatable="false">monokeep-78dima-sync</string>
+</resources>
