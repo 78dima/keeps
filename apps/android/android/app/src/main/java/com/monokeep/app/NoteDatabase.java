@@ -316,7 +316,10 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 // Reminder delivery belongs to this device, not the cloud's delivery channel.
                 if (local != null && Objects.equals(local.get("reminderDate"), next.get("reminderDate")) && Objects.equals(local.get("reminderVersion"), next.get("reminderVersion")))
                     next.put("isReminderSent", local.get("isReminderSent"));
-                if (local != null) next.put("sortAt", Math.max(number(local.get("sortAt"),0), number(next.get("sortAt"),0)));
+                // A losing pin edit must not retain its display position after the server wins.
+                // Only identical edit versions can retain device-local delivery ordering.
+                if (local != null && compare(local, next) == 0)
+                    next.put("sortAt", Math.max(number(local.get("sortAt"),0), number(next.get("sortAt"),0)));
                 db.insertWithOnConflict("notes", null, values(next), SQLiteDatabase.CONFLICT_REPLACE);
                 if (Boolean.TRUE.equals(next.get("syncDeleted")) && owner.equals(SyncSession.owner(context)))
                     ReminderScheduler.cancel(context, id);

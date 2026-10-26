@@ -1,6 +1,6 @@
 // supabase/functions/send-reminders/index.ts
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.118.0'
 import webpush from "npm:web-push@3.6.7";
 
 // --- КОНФИГУРАЦИЯ ---
@@ -99,7 +99,9 @@ Deno.serve(async (req) => {
 
     // 2. Обрабатываем каждую заметку
     for (const note of notes) {
-        const tgChatId = note.profiles?.telegram_chat_id;
+        const profile = (Array.isArray(note.profiles) ? note.profiles[0] : note.profiles) as
+            { telegram_chat_id?: string | null } | null;
+        const tgChatId = profile?.telegram_chat_id;
         const title = note.title || 'Untitled';
         const body = note.content || '';
 

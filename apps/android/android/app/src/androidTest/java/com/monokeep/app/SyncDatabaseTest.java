@@ -132,6 +132,23 @@ public class SyncDatabaseTest {
         assertEquals(false,db.find(id).get("isReminderSent"));
     }
 
+    @Test public void newerServerEditDiscardsPositionOfLosingOfflinePin() throws Exception {
+        Map<String,Object> first=db.save(row("title","first"));
+        String id=(String)first.get("id");
+        Map<String,Object> pinned=db.save(row("id",id,"isPinned",true));
+        assertTrue((Long)pinned.get("sortAt")>(Long)first.get("sortAt"));
+        JSONObject remote=NoteDatabase.toServer(first)
+            .put("title","newer web edit")
+            .put("edit_id",UUID.randomUUID().toString())
+            .put("updated_at",Instant.ofEpochMilli((Long)pinned.get("updatedAt")+1).toString());
+        db.accept(OWNER,new JSONArray().put(remote),"12");
+        assertEquals(false,db.find(id).get("isPinned"));
+        assertEquals(first.get("sortAt"),db.find(id).get("sortAt"));
+        assertEquals(0,db.pendingCount(OWNER));
+        db.accept(OWNER,new JSONArray().put(remote),"12");
+        assertEquals(first.get("sortAt"),db.find(id).get("sortAt"));
+    }
+
     @Test public void versionTwoUpgradePreservesQueuedEditAndResetsPullCursor() throws Exception {
         db.close(); context.deleteDatabase("test-sync.db");
         String id="91219b1c-cd19-490a-ab00-000000000099";
