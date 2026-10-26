@@ -13,6 +13,8 @@ interface KeepNoteImport {
     isPinned?: boolean;
     isArchived?: boolean;
     isTrashed?: boolean;
+    isReminderSent?: boolean;
+    reminderDate?: string;
     createdTimestampUsec?: number;
     userEditedTimestampUsec?: number;
     tags?: { name: string }[];
@@ -69,11 +71,11 @@ export async function importNotes(notesData: KeepNoteImport[]) {
             is_archived: n.isArchived || false,
             is_deleted: n.isTrashed || false,
             sync_deleted: false,
-            is_reminder_sent: false,
-            reminder_date: null, // Keep imports don't usually have this in compatible format
+            is_reminder_sent: n.isReminderSent || false,
+            reminder_date: n.reminderDate || null,
             created_at: created,
             updated_at: updated,
-            tags: n.tags || [],
+            tags: n.labels || [],
             user_id: userId // CRITICAL: Link to the authenticated user
         };
     });

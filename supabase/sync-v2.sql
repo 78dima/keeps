@@ -7,11 +7,21 @@ grant usage on sequence public.monokeep_sync_revision to authenticated, service_
 
 alter table public.notes add column if not exists edit_id uuid not null default '00000000-0000-0000-0000-000000000000';
 alter table public.notes add column if not exists sync_revision bigint not null default 0;
+alter table public.notes add column if not exists sort_at timestamptz;
+alter table public.notes add column if not exists reminder_enabled boolean not null default true;
+alter table public.notes add column if not exists reminder_version uuid not null default '00000000-0000-0000-0000-000000000000';
+alter table public.notes add column if not exists was_sent_once boolean not null default false;
 alter table public.tags add column if not exists edit_id uuid not null default '00000000-0000-0000-0000-000000000000';
 alter table public.tags add column if not exists sync_revision bigint not null default 0;
 -- Remove timestamp triggers BEFORE backfill: migration must not look like a user edit.
 drop trigger if exists update_notes_updated_at on public.notes;
 drop trigger if exists update_tags_updated_at on public.tags;
+
+update public.notes set sort_at = updated_at where sort_at is null;
+alter table public.notes alter column sort_at set not null;
+alter table public.notes alter column sort_at set default now();
+-- The old UI used the delivery flag for explicit disabling as well.
+update public.notes set reminder_enabled = not is_reminder_sent or was_sent_once where sync_revision = 0;
 
 -- Existing data stays intact and participates in the first full pull.
 update public.notes set sync_revision = nextval('public.monokeep_sync_revision') where sync_revision = 0;
@@ -45,15 +55,32 @@ begin
   if tg_op = 'UPDATE' then
     if new.user_id <> old.user_id then raise exception 'Cannot change note owner'; end if;
     if tg_table_name = 'notes' then
-      metadata_only := (to_jsonb(new) - array['is_reminder_sent','was_sent_once','sync_revision'])
-        = (to_jsonb(old) - array['is_reminder_sent','was_sent_once','sync_revision']);
+      metadata_only := current_user in ('postgres','service_role') and new.edit_id = old.edit_id
+        and (new.is_reminder_sent, new.was_sent_once, new.sort_at) is distinct from (old.is_reminder_sent, old.was_sent_once, old.sort_at)
+        and (to_jsonb(new) - array['is_reminder_sent','was_sent_once','sync_revision','updated_at','sort_at'])
+          = (to_jsonb(old) - array['is_reminder_sent','was_sent_once','sync_revision','updated_at','sort_at']);
+      if metadata_only then
+        -- Existing reminder sender also writes updated_at=now(). Delivery is never an edit.
+        new.updated_at := old.updated_at;
+        new.sort_at := greatest(new.sort_at, old.sort_at);
+        if new.is_reminder_sent and not old.is_reminder_sent then
+          new.sort_at := greatest(new.sort_at, clock_timestamp());
+        end if;
+      end if;
+      if (new.edit_id = old.edit_id or new.edit_id = '00000000-0000-0000-0000-000000000000') and not metadata_only
+        and (to_jsonb(new) - array['sync_revision','updated_at','sort_at']) <> (to_jsonb(old) - array['sync_revision','updated_at','sort_at']) then
+        raise exception 'This client must be updated before editing notes. Reload MonoKeep; local changes are retained.';
+      end if;
     end if;
     if not metadata_only and (new.updated_at, new.edit_id) <= (old.updated_at, old.edit_id) then
-      return null; -- Also protects writes from older web clients using plain upsert.
+      return null;
     end if;
     if to_jsonb(new) - 'sync_revision' = to_jsonb(old) - 'sync_revision' then return null; end if;
     if tg_table_name = 'notes' and not metadata_only then
-      if new.reminder_date is distinct from old.reminder_date then new.is_reminder_sent := false;
+      new.sort_at := greatest(old.sort_at, new.sort_at);
+      if new.reminder_date is distinct from old.reminder_date or new.reminder_version is distinct from old.reminder_version then
+        new.is_reminder_sent := not new.reminder_enabled;
+      elsif not new.reminder_enabled then new.is_reminder_sent := true;
       else new.is_reminder_sent := old.is_reminder_sent; end if;
     end if;
   end if;
@@ -116,14 +143,16 @@ begin
         end if;
       end if;
       insert into public.notes(id,user_id,title,content,color,is_pinned,is_archived,is_deleted,sync_deleted,
-        reminder_date,is_reminder_sent,tags,created_at,updated_at,edit_id)
+        reminder_date,is_reminder_sent,tags,created_at,updated_at,edit_id,sort_at,reminder_enabled,reminder_version)
       values(note.id,owner,coalesce(note.title,''),coalesce(note.content,''),note.color,
         coalesce(note.is_pinned,false),coalesce(note.is_archived,false),coalesce(note.is_deleted,false),coalesce(note.sync_deleted,false),
-        note.reminder_date,false,coalesce(note.tags,'[]'),coalesce(note.created_at,note.updated_at),note.updated_at,note.edit_id)
+        note.reminder_date,not coalesce(note.reminder_enabled,true),coalesce(note.tags,'[]'),coalesce(note.created_at,note.updated_at),note.updated_at,note.edit_id,
+        coalesce(note.sort_at,note.updated_at),coalesce(note.reminder_enabled,true),coalesce(note.reminder_version,'00000000-0000-0000-0000-000000000000'::uuid))
       on conflict(id) do update set title=excluded.title,content=excluded.content,color=excluded.color,
         is_pinned=excluded.is_pinned,is_archived=excluded.is_archived,is_deleted=excluded.is_deleted,
         sync_deleted=excluded.sync_deleted,reminder_date=excluded.reminder_date,tags=excluded.tags,
-        updated_at=excluded.updated_at,edit_id=excluded.edit_id;
+        updated_at=excluded.updated_at,edit_id=excluded.edit_id,sort_at=excluded.sort_at,
+        reminder_enabled=excluded.reminder_enabled,reminder_version=excluded.reminder_version;
       select to_jsonb(n) || jsonb_build_object('sync_revision',n.sync_revision::text) into current_row
         from public.notes n where id=note.id and user_id=owner;
     else

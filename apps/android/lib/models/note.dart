@@ -20,15 +20,17 @@ class Note {
     this.isArchived = false,
     this.isDeleted = false,
     this.isReminderSent = false,
+    this.reminderEnabled = true,
+    this.sortAt,
     this.reminderDate,
   });
 
   final String id, title, content;
   final String? color;
   final List<String> tags;
-  final bool isPinned, isArchived, isDeleted, isReminderSent;
+  final bool isPinned, isArchived, isDeleted, isReminderSent, reminderEnabled;
   final DateTime createdAt, updatedAt;
-  final DateTime? reminderDate;
+  final DateTime? reminderDate, sortAt;
 
   factory Note.fromMap(Map<dynamic, dynamic> data) => Note(
     id: data['id'] as String,
@@ -43,6 +45,8 @@ class Note {
     isArchived: data['isArchived'] == true,
     isDeleted: data['isDeleted'] == true,
     isReminderSent: data['isReminderSent'] == true,
+    reminderEnabled: data['reminderEnabled'] != false,
+    sortAt: data['sortAt'] == null ? null : DateTime.fromMillisecondsSinceEpoch((data['sortAt'] as num).toInt()),
   );
 
   Map<String, Object?> toMap() => {
@@ -52,6 +56,8 @@ class Note {
     'reminderDate': reminderDate?.millisecondsSinceEpoch,
     'isPinned': isPinned, 'isArchived': isArchived, 'isDeleted': isDeleted,
     'isReminderSent': isReminderSent,
+    'reminderEnabled': reminderEnabled,
+    'sortAt': sortAt?.millisecondsSinceEpoch,
   };
 
   bool matches(String query) {
@@ -69,8 +75,8 @@ class Note {
 
   // Same priority and stable tie-breaker as useNotesStore.ts.
   static int compare(Note a, Note b) {
-    if (a.isReminderSent != b.isReminderSent) return a.isReminderSent ? -1 : 1;
-    final date = b.updatedAt.compareTo(a.updatedAt);
+    if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+    final date = (b.sortAt ?? b.updatedAt).compareTo(a.sortAt ?? a.updatedAt);
     return date != 0 ? date : a.id.compareTo(b.id);
   }
 }
@@ -119,6 +125,8 @@ class ImportBatch {
               'isPinned': row['isPinned'] == true, 'isArchived': row['isArchived'] == true,
               'isDeleted': row['isDeleted'] == true || row['isTrashed'] == true,
               'isReminderSent': row['isReminderSent'] == true,
+              'reminderEnabled': row['reminderEnabled'] != false,
+              'sortAt': _timestamp(row['sortAt'], null),
               'createdAt': _timestamp(row['createdAt'], row['createdTimestampUsec']) ?? timestamp,
               'updatedAt': _timestamp(row['updatedAt'], row['userEditedTimestampUsec']) ?? timestamp,
               'reminderDate': _timestamp(row['reminderDate'], null),

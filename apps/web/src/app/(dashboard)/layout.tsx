@@ -35,13 +35,15 @@ export default function DashboardLayout({
     }, [initStore]);
 
     useEffect(() => {
-        // Basic Client-Side Auth Check
-        const token = localStorage.getItem('token');
-        if (!token) {
-            router.push('/login');
-        } else {
-            setIsAuthChecking(false);
-        }
+        const checkAuth = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                router.push('/login');
+            } else {
+                setIsAuthChecking(false);
+            }
+        };
+        checkAuth();
     }, [router]);
 
     // Initial search query sync

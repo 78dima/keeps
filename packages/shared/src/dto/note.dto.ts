@@ -25,6 +25,7 @@ export const UpdateNoteSchema = z.object({
     deleted: z.boolean().optional(), // Sync delete
     reminderDate: z.coerce.date().nullable().optional(),
     isReminderSent: z.boolean().optional(),
+    reminderEnabled: z.boolean().optional(),
     updatedAt: z.coerce.date().optional(),
     tags: z.array(z.string()).optional(),
 });
@@ -44,7 +45,10 @@ export const NoteResponseSchema = z.object({
     deletedAt: z.date().nullable(),
     reminderDate: z.date().nullable(),
     isReminderSent: z.boolean(), // Add this new field
-    userId: z.number(),
+    sortAt: z.date().optional(),
+    reminderEnabled: z.boolean().optional(),
+    wasSentOnce: z.boolean(), // Add this new field
+    userId: z.string(),
     updatedAt: z.date(),
     createdAt: z.date(),
     tags: z.array(z.object({

@@ -19,6 +19,8 @@ class StorageContract(unittest.TestCase):
     def setUp(self):
         self.db = sqlite3.connect(':memory:')
         self.db.executescript(SCHEMA.read_text())
+        self.db.executescript((SCHEMA.parent / 'sync-migration.sql').read_text())
+        self.db.executescript((SCHEMA.parent / 'reminder-migration.sql').read_text())
 
     def tearDown(self):
         self.db.close()
@@ -41,12 +43,12 @@ class StorageContract(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.insert('same')
 
-    def test_native_sort_query_prioritizes_reminders_and_stably_orders_dates(self):
-        self.insert('b', updated_at=5, reminder_sent=1)
-        self.insert('a', updated_at=5, reminder_sent=1)
-        self.insert('new', updated_at=999)
+    def test_native_sort_keeps_pins_first_and_uses_display_order(self):
+        self.insert('b', updated_at=5, sort_at=5, is_pinned=1)
+        self.insert('a', updated_at=5, sort_at=5, is_pinned=1)
+        self.insert('new', updated_at=999, sort_at=999)
         source = (ROOT / 'android/app/src/main/java/com/monokeep/app/NoteDatabase.java').read_text()
-        order = re.search(r'"(reminder_sent DESC, updated_at DESC, id ASC)"', source).group(1)
+        order = re.search(r'"(is_pinned DESC, sort_at DESC, id ASC)"', source).group(1)
         self.assertEqual([r[0] for r in self.db.execute(f'SELECT id FROM notes ORDER BY {order}')], ['a', 'b', 'new'])
 
     def test_unicode_and_linebreaks_survive_a_real_reopen(self):

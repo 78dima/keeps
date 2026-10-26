@@ -7,3 +7,14 @@ coverage
 *.log
 .DS_Store
 .agent
+.secrets
+**/.toolchain
+**/key.properties
+**/build
+
+.env
+.env.*
+**/.env
+**/.env.*
+**/node_modules
+apps/android

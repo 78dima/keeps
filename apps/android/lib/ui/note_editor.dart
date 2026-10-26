@@ -25,6 +25,8 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   late DateTime? _reminder = widget.resetReminder ? null : widget.note?.reminderDate;
   Map<String, dynamic>? _permissions;
   bool _saving = false;
+  bool _notifyTouched = false;
+  late bool _notifyEnabled = (widget.note?.reminderEnabled ?? true) && !(widget.note?.isReminderSent ?? false);
   String? _error;
 
   @override
@@ -45,7 +47,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
       final date = await widget.store.pickReminder(_reminder);
       if (!mounted || date == null) return;
       if (!date.isAfter(DateTime.now())) { setState(() => _error = 'Choose a future time.'); return; }
-      setState(() { _reminder = date; _error = null; });
+      setState(() { _reminder = date; _error = null; _notifyEnabled = true; _notifyTouched = true; });
       final status = await widget.store.requestNotifications();
       if (mounted) setState(() => _permissions = status);
     } catch (e) { if (mounted) setState(() => _error = 'Could not set reminder: $e'); }
@@ -73,6 +75,7 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
         if (widget.note != null) 'id': widget.note!.id,
         'title': _title.text, 'content': _content.text, 'tags': tags, 'color': _color,
         'reminderDate': _reminder?.millisecondsSinceEpoch,
+        if (_notifyTouched) 'reminderEnabled': _notifyEnabled,
         if (archive != null) 'isArchived': archive,
       };
       await widget.store.save(patch);
@@ -119,6 +122,12 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
                     TextButton(onPressed: _saving ? null : _pickReminder,
                       style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
                       child: Text(_reminder == null ? 'Set date & time' : reminderLabel(_reminder!), style: const TextStyle(fontSize: 12))),
+                    if (_reminder != null) IconButton(
+                      tooltip: _notifyEnabled ? 'Уведомление будет отправлено' : 'Уведомление отключено — нажмите чтобы включить',
+                      icon: Icon(_notifyEnabled ? Icons.notifications_outlined : Icons.notifications_off_outlined, size: 18),
+                      color: _notifyEnabled ? const Color(0xffb45309) : muted,
+                      onPressed: _saving ? null : () => setState(() { _notifyEnabled = !_notifyEnabled; _notifyTouched = true; }),
+                    ),
                     if (_reminder != null) IconAction(glyph: KeepGlyph.close, label: 'Clear reminder', size: 32,
                       onPressed: _saving ? null : () => setState(() => _reminder = null)),
                   ]),

@@ -39,3 +39,19 @@ test('Taipei reminder survives web edit without an eight-hour shift or lost seco
         assert.equal(dateFromInput('2026-10-27T11:00',instant).toISOString(),'2026-10-27T03:00:00.000Z');
     } finally { if (timezone === undefined) delete process.env.TZ; else process.env.TZ = timezone; }
 });
+
+
+test('content edits advance LWW without moving the note or rearming a delivered reminder', async () => {
+    const {noteEditMetadata}=await import('../src/lib/sync-protocol.ts');
+    const old={updatedAt:'2026-01-01T10:00:00.000Z',sortAt:'2026-01-01T09:00:00.000Z',isPinned:false,
+        reminderDate:'2026-01-01T09:30:00.000Z',isReminderSent:true,reminderEnabled:true,reminderVersion:'old'};
+    const edited=noteEditMetadata(old,{reminderDate:old.reminderDate,isReminderSent:false});
+    assert.ok(Date.parse(edited.updatedAt)>Date.parse(old.updatedAt));
+    assert.equal(edited.sortAt,old.sortAt); assert.equal(edited.isReminderSent,true);
+    assert.equal(edited.reminderVersion,'old');
+    const pinned=noteEditMetadata(old,{isPinned:true}); assert.equal(pinned.sortAt,pinned.updatedAt);
+    const disabled=noteEditMetadata(old,{reminderEnabled:false}); assert.equal(disabled.reminderEnabled,false);
+    assert.notEqual(disabled.reminderVersion,'old');
+    const rearmed=noteEditMetadata(old,{reminderEnabled:true}); assert.equal(rearmed.isReminderSent,false);
+    assert.notEqual(rearmed.reminderVersion,'old');
+});

@@ -99,4 +99,57 @@ public class SyncDatabaseTest {
         db.adoptGuestNotes(UUID.randomUUID().toString());
         assertEquals(1,db.list().size());
     }
+
+    @Test public void contentEditKeepsDisplayPositionAndBellIntentHasItsOwnVersion() throws Exception {
+        Map<String,Object> first=db.save(row("title","first","reminderDate",1000L));
+        Map<String,Object> second=db.save(row("title","second"));
+        String id=(String)first.get("id");
+        db.markReminderSent(id,1000L);
+        Map<String,Object> delivered=db.find(id);
+        Map<String,Object> edited=db.save(row("id",id,"title","edited","isReminderSent",false));
+        assertEquals(delivered.get("sortAt"),edited.get("sortAt"));
+        assertTrue((Long)edited.get("updatedAt")>(Long)second.get("updatedAt"));
+        assertEquals(true,edited.get("isReminderSent"));
+        Map<String,Object> disabled=db.save(row("id",id,"reminderEnabled",false));
+        assertEquals(false,disabled.get("reminderEnabled"));
+        assertNotEquals(edited.get("reminderVersion"),disabled.get("reminderVersion"));
+        Map<String,Object> rearmed=db.save(row("id",id,"reminderEnabled",true));
+        assertEquals(false,rearmed.get("isReminderSent"));
+        assertEquals(1000L,rearmed.get("reminderDate"));
+        assertNotEquals(disabled.get("reminderVersion"),rearmed.get("reminderVersion"));
+        JSONObject remote=db.pending(OWNER).getJSONObject(0);
+        db.markReminderSent(id,1000L);
+        remote.put("reminder_version",UUID.randomUUID().toString())
+            .put("edit_id",UUID.randomUUID().toString())
+            .put("updated_at",Instant.ofEpochMilli((Long)rearmed.get("updatedAt")+1).toString());
+        db.accept(OWNER,new JSONArray().put(remote),"11");
+        assertEquals(false,db.find(id).get("isReminderSent"));
+    }
+
+    @Test public void versionTwoUpgradePreservesQueuedEditAndResetsPullCursor() throws Exception {
+        db.close(); context.deleteDatabase("test-sync.db");
+        String id="91219b1c-cd19-490a-ab00-000000000099";
+        try(SQLiteDatabase old=context.openOrCreateDatabase("test-sync.db",0,null)) {
+            for(String file:new String[]{"schema.sql","sync-migration.sql"}) {
+                try(java.io.InputStream input=context.getAssets().open(file)) {
+                    java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
+                    byte[] buffer=new byte[4096]; int count;
+                    while((count=input.read(buffer))!=-1)out.write(buffer,0,count);
+                    for(String statement:out.toString("UTF-8").split(";")) if(!statement.trim().isEmpty())old.execSQL(statement);
+                }
+            }
+            old.execSQL("INSERT INTO notes(id,owner_id,title,created_at,updated_at) VALUES(?,?,?,1,1234)",new Object[]{id,OWNER,"queued v2"});
+            old.execSQL("INSERT INTO sync_outbox(note_id,owner_id,edit_id,payload) VALUES(?,?,?,?)",new Object[]{id,OWNER,"00000000-0000-0000-0000-000000000000","{}"});
+            old.execSQL("INSERT INTO sync_state(owner_id,revision) VALUES(?,?)",new Object[]{OWNER,"987"});
+            old.setVersion(2);
+        }
+        db=new NoteDatabase(context,"test-sync.db");
+        assertEquals("queued v2",db.find(id).get("title"));
+        assertEquals(1234L,db.find(id).get("sortAt"));
+        assertEquals("0",db.checkpoint(OWNER));
+        JSONObject pending=db.pending(OWNER).getJSONObject(0);
+        assertEquals("queued v2",pending.getString("title"));
+        assertTrue(pending.getBoolean("reminder_enabled"));
+        assertEquals(Instant.ofEpochMilli(1234).toString(),pending.getString("updated_at"));
+    }
 }

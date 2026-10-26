@@ -18,7 +18,7 @@ async function moduleFromSource(path, overrides = {}) {
     return import(`data:text/javascript;base64,${Buffer.from(resolved).toString('base64')}`);
 }
 process.env.NODE_ENV = 'production';
-const { noteSchema } = await moduleFromSource('../src/lib/db.ts');
+const { noteSchema, configureCollections, noteConflictHandler } = await moduleFromSource('../src/lib/db.ts');
 const { createSyncHandlers } = await moduleFromSource('../src/lib/replication.ts', {
     './supabase': 'data:text/javascript,export const supabase = {};',
 });
@@ -33,7 +33,7 @@ function server() {
                 assert.equal(doc.user_id, owner);
                 const old = rows.get(doc.id);
                 if (!old || compareEdits(snakeVersion(doc), snakeVersion(old)) > 0) {
-                    rows.set(doc.id, { ...doc, sync_revision: String(++revision), is_reminder_sent: old?.is_reminder_sent || false });
+                    rows.set(doc.id, { ...doc, sort_at:doc.sort_at||doc.updated_at,was_sent_once:old?.was_sent_once||false,sync_revision: String(++revision), is_reminder_sent: old?.is_reminder_sent || false });
                 }
                 return { ...rows.get(doc.id) };
             });
@@ -47,10 +47,7 @@ function server() {
 }
 async function device(remote, label) {
     const db = await createRxDatabase({ name:`sync${label}${crypto.randomUUID().replaceAll('-','')}`, storage:getRxStorageMemory(), multiInstance:false });
-    await db.addCollections({ notes:{ schema:noteSchema, conflictHandler:{
-        isEqual:(a,b)=>compareEdits(a,b)===0 && a.isReminderSent===b.isReminderSent,
-        resolve:async input=>resolveEdit(input.newDocumentState,input.realMasterState),
-    }}});
+    await db.addCollections({ notes:{ schema:noteSchema, conflictHandler:noteConflictHandler }});
     const connect = () => replicateRxCollection({ collection:db.notes, replicationIdentifier:`test-${label}`,
         ...createSyncHandlers('notes',owner,0,remote), live:true, waitForLeadership:false, retryTime:30 });
     return { db, connect };
@@ -101,8 +98,31 @@ test('production pull handler pages through more than one batch and refuses a di
     const a=await h.pull.handler(undefined,100), b=await h.pull.handler(a.checkpoint,100);
     assert.equal(a.documents.length+b.documents.length,125);
     assert.equal(b.checkpoint.revision,'125');
-    assert.equal('wasSentOnce' in a.documents[0],false);
+    assert.equal(a.documents[0].wasSentOnce,true);
     assert.equal('syncRevision' in a.documents[0],false);
     remote.rows.get('1').user_id='another-owner';
     await assert.rejects(()=>h.pull.handler(undefined,100),/Wrong sync owner/);
+});
+
+
+test('production v5 schema migrates in place and preserves an exact local recovery copy', {timeout:15000}, async () => {
+    const storage=getRxStorageMemory();
+    const name=`migration${crypto.randomUUID().replaceAll('-','')}`;
+    const oldSchema=JSON.parse(JSON.stringify(noteSchema)); oldSchema.version=0;
+    for(const key of ['editId','sortAt','reminderEnabled','reminderVersion']) delete oldSchema.properties[key];
+    const old=await createRxDatabase({name,storage,multiInstance:false});
+    await old.addCollections({notes:{schema:oldSchema}});
+    const legacy={...document('legacy'),title:'Unsent local draft',wasSentOnce:true}; delete legacy.editId;
+    await old.notes.insert(legacy); await old.close();
+    const db=await createRxDatabase({name,storage,multiInstance:false});
+    try {
+        await configureCollections(db);
+        const migrated=await db.notes.findOne('legacy').exec();
+        assert.equal(migrated.title,'Unsent local draft');
+        assert.equal(migrated.updatedAt,legacy.updatedAt);
+        assert.equal(migrated.sortAt,legacy.updatedAt);
+        const copy=await db.migration_backup.findOne('legacy').exec();
+        assert.equal(copy.userId,owner);
+        assert.equal(JSON.parse(copy.snapshot).title,'Unsent local draft');
+    } finally { await db.remove(); }
 });

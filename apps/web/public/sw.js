@@ -1,3 +1,6 @@
+// Minimal Service Worker — push notifications only, NO caching.
+// Per official Next.js PWA guide: https://nextjs.org/docs/app/guides/progressive-web-apps
+
 self.addEventListener('push', function (event) {
     if (event.data) {
         const data = event.data.json();
@@ -9,7 +12,7 @@ self.addEventListener('push', function (event) {
             data: {
                 dateOfArrival: Date.now(),
                 primaryKey: '2',
-                url: data.url
+                url: data.url,
             },
         };
         event.waitUntil(

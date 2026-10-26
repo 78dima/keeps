@@ -36,7 +36,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
 
     // A different file name lets instrumentation tests exercise real SQLite in isolation.
     NoteDatabase(Context context, String name) {
-        super(context, name, null, 2);
+        super(context, name, null, 3);
         this.context = context;
         setWriteAheadLoggingEnabled(true);
     }
@@ -58,14 +58,23 @@ public final class NoteDatabase extends SQLiteOpenHelper {
             throw new IllegalStateException("Cannot initialize notes", error);
         }
         migrateSync(db);
+        migrateReminders(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if (oldVersion < 2) migrateSync(db);
+        if (oldVersion < 3) migrateReminders(db);
     }
 
-    private void migrateSync(SQLiteDatabase db) {
-        try (InputStream input = context.getAssets().open("sync-migration.sql")) {
+    private void migrateSync(SQLiteDatabase db) { migrateAsset(db, "sync-migration.sql"); }
+    private void migrateReminders(SQLiteDatabase db) {
+        migrateAsset(db, "reminder-migration.sql");
+        try (Cursor rows = db.rawQuery("SELECT notes.* FROM notes INNER JOIN sync_outbox ON notes.id = sync_outbox.note_id", null)) {
+            while (rows.moveToNext()) enqueue(db, read(rows));
+        }
+    }
+    private void migrateAsset(SQLiteDatabase db, String file) {
+        try (InputStream input = context.getAssets().open(file)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             byte[] buffer = new byte[4096]; int count;
             while ((count = input.read(buffer)) != -1) bytes.write(buffer, 0, count);
@@ -83,7 +92,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         }
         List<Map<String, Object>> result = new ArrayList<>();
         try (Cursor cursor = getReadableDatabase().query("notes", null, "owner_id = ? AND sync_deleted = 0", new String[]{SyncSession.owner(context)}, null, null,
-                "reminder_sent DESC, updated_at DESC, id ASC")) {
+                "is_pinned DESC, sort_at DESC, id ASC")) {
             while (cursor.moveToNext()) result.add(read(cursor));
         }
         return result;
@@ -107,12 +116,15 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         row.put("updatedAt", now);
         row.put("editId", UUID.randomUUID().toString());
         row.put("ownerId", SyncSession.owner(context));
-        // Updating content or pin status cannot undo a reminder delivered while the editor was open.
-        if (existing != null) row.put("isReminderSent", existing.get("isReminderSent"));
-        if (patch.containsKey("reminderDate") &&
-                (existing == null || !Objects.equals(existing.get("reminderDate"), patch.get("reminderDate")))) {
-            row.put("isReminderSent", false);
-        }
+        boolean pinChanged = existing != null && patch.containsKey("isPinned") && !Objects.equals(existing.get("isPinned"), patch.get("isPinned"));
+        row.put("sortAt", existing == null || pinChanged ? now : existing.get("sortAt"));
+        boolean dateChanged = patch.containsKey("reminderDate") && (existing == null || !Objects.equals(existing.get("reminderDate"), patch.get("reminderDate")));
+        boolean intentChanged = dateChanged || patch.containsKey("reminderEnabled");
+        boolean enabled = patch.containsKey("reminderEnabled") ? Boolean.TRUE.equals(patch.get("reminderEnabled"))
+            : dateChanged || existing == null || !Boolean.FALSE.equals(existing.get("reminderEnabled"));
+        row.put("reminderEnabled", enabled);
+        row.put("reminderVersion", intentChanged || existing == null ? row.get("editId") : existing.get("reminderVersion"));
+        row.put("isReminderSent", intentChanged ? false : existing != null && Boolean.TRUE.equals(existing.get("isReminderSent")));
         if (row.get("reminderDate") == null) row.put("isReminderSent", false);
         ContentValues values = values(row);
         SQLiteDatabase db = getWritableDatabase();
@@ -147,7 +159,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 }
                 row.put("ownerId", SyncSession.owner(context));
                 row.put("editId", UUID.randomUUID().toString());
+                row.put("sortAt", number(row.get("sortAt"), number(row.get("updatedAt"), System.currentTimeMillis())));
                 row.put("updatedAt", SyncClock.now(context, 0));
+                row.put("reminderVersion", row.get("editId"));
                 db.insertOrThrow("notes", null, values(row));
                 enqueue(db, row);
                 imported++;
@@ -170,8 +184,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     public void markReminderSent(String id, long expectedDate) {
         ContentValues values = new ContentValues();
         values.put("reminder_sent", 1);
+        values.put("sort_at", SyncClock.now(context, 0));
         getWritableDatabase().update("notes", values,
-                "id = ? AND reminder_at = ? AND is_deleted = 0 AND sync_deleted = 0 AND owner_id = ?", new String[]{id, Long.toString(expectedDate), SyncSession.owner(context)});
+                "id = ? AND reminder_at = ? AND is_deleted = 0 AND sync_deleted = 0 AND reminder_enabled = 1 AND owner_id = ?", new String[]{id, Long.toString(expectedDate), SyncSession.owner(context)});
     }
 
     private static ContentValues values(Map<String, Object> row) {
@@ -195,6 +210,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         values.put("tags", new JSONArray(tags).toString());
         values.put("created_at", number(row.get("createdAt"), System.currentTimeMillis()));
         values.put("updated_at", number(row.get("updatedAt"), System.currentTimeMillis()));
+        values.put("sort_at", number(row.get("sortAt"), number(row.get("updatedAt"), System.currentTimeMillis())));
+        values.put("reminder_enabled", Boolean.FALSE.equals(row.get("reminderEnabled")) ? 0 : 1);
+        values.put("reminder_version", Objects.toString(row.get("reminderVersion"), "00000000-0000-0000-0000-000000000000"));
         if (row.get("reminderDate") instanceof Number) values.put("reminder_at", ((Number) row.get("reminderDate")).longValue());
         else values.putNull("reminder_at");
         String[] flags = {"isPinned", "isArchived", "isDeleted", "isReminderSent"};
@@ -215,6 +233,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         row.put("syncDeleted", cursor.getInt(cursor.getColumnIndexOrThrow("sync_deleted")) == 1);
         row.put("createdAt", cursor.getLong(cursor.getColumnIndexOrThrow("created_at")));
         row.put("updatedAt", cursor.getLong(cursor.getColumnIndexOrThrow("updated_at")));
+        row.put("sortAt", cursor.getLong(cursor.getColumnIndexOrThrow("sort_at")));
+        row.put("reminderEnabled", cursor.getInt(cursor.getColumnIndexOrThrow("reminder_enabled")) == 1);
+        row.put("reminderVersion", cursor.getString(cursor.getColumnIndexOrThrow("reminder_version")));
         int reminder = cursor.getColumnIndexOrThrow("reminder_at");
         row.put("reminderDate", cursor.isNull(reminder) ? null : cursor.getLong(reminder));
         String[] flags = {"isPinned", "isArchived", "isDeleted", "isReminderSent"};
@@ -293,8 +314,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 if (local != null && !owner.equals(local.get("ownerId"))) throw new SecurityException("Note belongs to another account");
                 if (local != null && compare(local, next) > 0) continue;
                 // Reminder delivery belongs to this device, not the cloud's delivery channel.
-                if (local != null && Objects.equals(local.get("reminderDate"), next.get("reminderDate")))
+                if (local != null && Objects.equals(local.get("reminderDate"), next.get("reminderDate")) && Objects.equals(local.get("reminderVersion"), next.get("reminderVersion")))
                     next.put("isReminderSent", local.get("isReminderSent"));
+                if (local != null) next.put("sortAt", Math.max(number(local.get("sortAt"),0), number(next.get("sortAt"),0)));
                 db.insertWithOnConflict("notes", null, values(next), SQLiteDatabase.CONFLICT_REPLACE);
                 if (Boolean.TRUE.equals(next.get("syncDeleted")) && owner.equals(SyncSession.owner(context)))
                     ReminderScheduler.cancel(context, id);
@@ -322,6 +344,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
             for (String[] field : fields) result.put(field[1], row.get(field[0]) == null ? JSONObject.NULL : row.get(field[0]));
             result.put("created_at", Instant.ofEpochMilli(number(row.get("createdAt"), 0)).toString());
             result.put("updated_at", Instant.ofEpochMilli(number(row.get("updatedAt"), 0)).toString());
+            result.put("sort_at", Instant.ofEpochMilli(number(row.get("sortAt"), number(row.get("updatedAt"), 0))).toString());
+            result.put("reminder_enabled", !Boolean.FALSE.equals(row.get("reminderEnabled")));
+            result.put("reminder_version", Objects.toString(row.get("reminderVersion"), "00000000-0000-0000-0000-000000000000"));
             result.put("reminder_date", row.get("reminderDate") instanceof Number ? Instant.ofEpochMilli(number(row.get("reminderDate"), 0)).toString() : JSONObject.NULL);
             JSONArray tags = new JSONArray();
             if (row.get("tags") instanceof List<?>) for (Object tag : (List<?>) row.get("tags")) {
@@ -341,6 +366,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         row.put("isPinned", source.optBoolean("is_pinned")); row.put("isArchived", source.optBoolean("is_archived"));
         row.put("isDeleted", source.optBoolean("is_deleted")); row.put("syncDeleted", source.optBoolean("sync_deleted"));
         row.put("isReminderSent", false);
+        row.put("sortAt", source.isNull("sort_at") ? row.get("updatedAt") : Instant.parse(source.getString("sort_at")).toEpochMilli());
+        row.put("reminderEnabled", source.optBoolean("reminder_enabled", true));
+        row.put("reminderVersion", source.optString("reminder_version", "00000000-0000-0000-0000-000000000000"));
         List<String> tags = new ArrayList<>(); JSONArray array = source.optJSONArray("tags");
         if (array != null) for (int i=0; i<array.length(); i++) tags.add(array.getJSONObject(i).getString("name"));
         row.put("tags", tags); return row;

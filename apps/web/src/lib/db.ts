@@ -2,6 +2,7 @@ import {
     createRxDatabase,
     RxDatabase,
     RxCollection,
+    RxConflictHandler,
     RxStorage,
     addRxPlugin
 } from 'rxdb';
@@ -43,6 +44,7 @@ export const noteSchema = {
         color: { type: ['string', 'null'] },
         isPinned: { type: 'boolean' },
         isArchived: { type: 'boolean' },
+        wasSentOnce: { type: 'boolean' },
 
         // UI Trash flag
         isDeleted: { type: 'boolean' },
@@ -55,6 +57,9 @@ export const noteSchema = {
 
         reminderDate: { type: ['string', 'null'] },
         isReminderSent: { type: 'boolean' },
+        reminderEnabled: { type: 'boolean', default: true },
+        reminderVersion: { type: 'string', default: ZERO_EDIT },
+        sortAt: { type: 'string' },
 
         updatedAt: { type: 'string' },
         editId: { type: 'string', default: ZERO_EDIT },
@@ -106,11 +111,20 @@ export type NoteDocType = {
     deletedAt?: string | null;
     reminderDate?: string | null;
     isReminderSent: boolean;
+    wasSentOnce?: boolean;
+    reminderEnabled?: boolean;
+    reminderVersion?: string;
+    sortAt?: string;
     updatedAt: string;
     editId?: string;
     createdAt?: string;
     userId: string; // Changed to string (UUID)
     tags: { id: string; name: string }[];
+};
+
+export const noteConflictHandler: RxConflictHandler<NoteDocType> = {
+    isEqual: (a, b) => compareEdits(a, b) === 0 && a.isReminderSent === b.isReminderSent && a.sortAt === b.sortAt && a.wasSentOnce === b.wasSentOnce,
+    resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState),
 };
 
 export type TagDocType = {
@@ -125,6 +139,7 @@ export type TagDocType = {
 export type MyDatabaseCollections = {
     notes: RxCollection<NoteDocType>;
     tags: RxCollection<TagDocType>;
+    migration_backup: RxCollection<{ id: string; userId: string; snapshot: string }>;
 };
 
 export type MyDatabase = RxDatabase<MyDatabaseCollections>;
@@ -148,19 +163,37 @@ const createDatabase = async (): Promise<MyDatabase> => {
     }
 
     const db = await createRxDatabase<MyDatabaseCollections>({
-        name: 'monokeepdb_v2', // Changed name to force fresh DB for schema change
+        name: 'monokeepdb_v5',
         storage,
-        ignoreDuplicate: true
+        ignoreDuplicate: isDev // Only allowed in dev-mode, throws DB9 in production
     });
 
-    await db.addCollections({
-        notes: { schema: noteSchema, migrationStrategies: { 1: (doc) => (() => { const clean = { ...doc }; delete clean.syncRevision; delete clean.wasSentOnce; return { ...clean, editId: doc.editId || ZERO_EDIT }; })() },
-            conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0 && a.isReminderSent === b.isReminderSent,
-                resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } },
-        tags: { schema: tagSchema, migrationStrategies: { 1: (doc) => (() => { const clean = { ...doc }; delete clean.syncRevision; delete clean.wasSentOnce; return { ...clean, editId: doc.editId || ZERO_EDIT }; })() },
-            conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0,
-                resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } }
-    });
-
+    await configureCollections(db);
     return db;
 };
+
+export async function configureCollections(db: MyDatabase) {
+    // Legacy clients did not record text-edit timestamps. Keep their exact local snapshots
+    // before migration so an equal-version cloud record cannot silently erase a draft.
+    await db.addCollections({ migration_backup: { schema: {
+        version: 0, primaryKey: 'id', type: 'object', properties: {
+            id: { type: 'string', maxLength: 100 }, userId: { type: 'string' }, snapshot: { type: 'string' },
+        }, required: ['id', 'userId', 'snapshot'],
+    } } });
+    await db.addCollections({
+        notes: { schema: noteSchema, migrationStrategies: { 1: async (doc) => {
+            if (!(await db.migration_backup.findOne(doc.id).exec())) {
+                await db.migration_backup.insert({ id: doc.id, userId: doc.userId || '', snapshot: JSON.stringify(doc) });
+            }
+            const clean = { ...doc }; delete clean.syncRevision;
+            return { ...clean, sortAt: doc.sortAt || doc.updatedAt,
+                reminderEnabled: doc.reminderEnabled ?? (!doc.isReminderSent || !!doc.wasSentOnce),
+                reminderVersion: doc.reminderVersion || ZERO_EDIT, editId: doc.editId || ZERO_EDIT };
+        } }, conflictHandler: noteConflictHandler },
+        tags: { schema: tagSchema, migrationStrategies: { 1: (doc) => {
+            const clean = { ...doc }; delete clean.syncRevision; delete clean.wasSentOnce;
+            return { ...clean, editId: doc.editId || ZERO_EDIT };
+        } }, conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0,
+            resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } },
+    });
+}

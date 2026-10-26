@@ -6,10 +6,11 @@ import { cn } from '@/lib/utils';
 import { Lightbulb, Trash2, Pin, X } from 'lucide-react';
 import { TelegramLinkDialog } from './telegram-link-dialog';
 import { usePinnedNotes } from '@/hooks/use-pinned-notes';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useNotesStore } from '@/store/useNotesStore';
 import { ImportNotesDialog } from './import-notes-dialog';
+import { getDatabase } from '@/lib/db';
 
 const links = [
     { name: 'Notes', href: '/', icon: Lightbulb },
@@ -56,10 +57,39 @@ function SidebarContent({ className, onItemClick }: { className?: string, onItem
             </div>
             <div className="p-4 border-t border-black/5 space-y-2 bg-white/50 shrink-0">
                 <ImportNotesDialog />
+                <MigrationBackup />
                 <TelegramLinkDialog />
             </div>
         </div>
     );
+}
+
+function MigrationBackup() {
+    const userId = useNotesStore(state => state.userId);
+    const [count, setCount] = useState(0);
+    useEffect(() => {
+        let active = true;
+        setCount(0);
+        if (!userId) return;
+        void getDatabase().then(async db => {
+            const rows = await db.migration_backup.find({ selector: { userId } }).exec();
+            if (active) setCount(rows.length);
+        });
+        return () => { active = false; };
+    }, [userId]);
+    if (!count) return null;
+    return <Button variant="ghost" className="w-full text-xs" onClick={async () => {
+        const db = await getDatabase();
+        const rows = await db.migration_backup.find({ selector: { userId } }).exec();
+        if (useNotesStore.getState().userId !== userId) return;
+        const notes = rows.map(row => {
+            const { id, _rev, _meta, _attachments, _deleted, ...note } = JSON.parse(row.snapshot);
+            return { ...note, sourceId: id }; // Re-import creates a copy without overwriting a newer note.
+        });
+        const url = URL.createObjectURL(new Blob([JSON.stringify(notes, null, 2)], { type: 'application/json' }));
+        const link = document.createElement('a'); link.href = url; link.download = 'monokeep-before-sync-update.json'; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }}>Копия заметок до обновления ({count})</Button>;
 }
 
 export function Sidebar() {
@@ -136,9 +166,7 @@ function PinnedNotesList({ onItemClick }: { onItemClick?: () => void }) {
     const { openEditModal, userId } = useNotesStore();
 
     useEffect(() => {
-        if (userId) {
-            init(userId);
-        }
+        init(userId);
     }, [init, userId]);
 
     if (notes.length === 0) return null;

@@ -46,6 +46,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   final _busy = <String>{};
   NoteView _view = NoteView.active;
   String _query = '';
+  String _tierFilter = 'all';
+  String? _colorFilter;
   String? _error;
   bool _loading = true, _editing = false, _exporting = false;
   Map<String, dynamic>? _queuedIntent;
@@ -175,7 +177,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
   Widget _sidebar(bool mobile) {
     final pinned = _notes.where((n) => n.isPinned && n.inView(NoteView.active)).toList()
-      ..sort((a, b) { final date = b.updatedAt.compareTo(a.updatedAt); return date != 0 ? date : a.id.compareTo(b.id); });
+      ..sort(Note.compare);
     Widget link(String text, KeepGlyph icon, VoidCallback action, {bool active = false}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(color: active ? const Color(0x0d000000) : Colors.transparent, borderRadius: BorderRadius.circular(32),
@@ -240,9 +242,14 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   ]);
 
   Widget _content(double viewport) {
-    final filtered = _notes.where((note) => note.inView(_view) && note.matches(_query)).toList();
+    final available = _notes.where((note) => note.inView(_view) && note.matches(_query)).toList();
+    final filtered = available.where((note) => _view != NoteView.active || _colorFilter == null || note.color == _colorFilter).toList();
+    final colors = available.map((note) => note.color).whereType<String>().where((color) => color != '#ffffff').toSet();
     final pinned = filtered.where((note) => note.isPinned).toList();
     final others = filtered.where((note) => !note.isPinned).toList();
+    final alarm = others.where((note) => note.reminderDate != null && note.reminderEnabled && note.isReminderSent).toList();
+    final scheduled = others.where((note) => note.reminderDate != null && note.reminderEnabled && !note.isReminderSent).toList();
+    final displayed = _view != NoteView.active || _tierFilter == 'all' ? others : _tierFilter == 'alarm' ? alarm : scheduled;
     final columns = viewport >= 1024 ? 3 : viewport >= 640 ? 2 : 1;
     const section = TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: muted);
     return RefreshIndicator(onRefresh: _resume, child: SingleChildScrollView(
@@ -254,6 +261,29 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           const SizedBox(height: 16),
           if (_view == NoteView.active) CreateNote(store: widget.store, onCreated: _reload)
           else Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), child: Text(_view == NoteView.trash ? 'Trash' : 'Archive', style: heading.copyWith(fontSize: 24))),
+          if (_view == NoteView.active && available.isNotEmpty) ...[
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final item in [('all', 'All', filtered.length), ('alarm', '🔥 Alarm', alarm.length), ('scheduled', '⏰ Scheduled', scheduled.length)])
+                ChoiceChip(key: Key('tier-${item.$1}'), label: Text('${item.$2}${item.$3 > 0 ? '  ${item.$3}' : ''}'), showCheckmark: false,
+                  selected: _tierFilter == item.$1, selectedColor: foreground,
+                  labelStyle: TextStyle(color: _tierFilter == item.$1 ? Colors.white : muted, fontSize: 14),
+                  shape: const StadiumBorder(side: BorderSide.none), side: BorderSide.none,
+                  onSelected: (_) => setState(() => _tierFilter = item.$1)),
+            ]),
+            if (colors.isNotEmpty || _colorFilter != null) ...[
+              const SizedBox(height: 16),
+              Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                ChoiceChip(label: const Text('All colors'), showCheckmark: false,
+                  selected: _colorFilter == null, onSelected: (_) => setState(() => _colorFilter = null)),
+                for (final color in colors) Semantics(key: Key('filter-color-$color'), button: true, selected: _colorFilter == color, label: 'Filter color $color',
+                  child: InkWell(onTap: () => setState(() => _colorFilter = _colorFilter == color ? null : color),
+                    customBorder: const CircleBorder(), child: Container(width: 26, height: 26,
+                      decoration: BoxDecoration(color: noteColor(color), shape: BoxShape.circle,
+                        border: Border.all(width: _colorFilter == color ? 3 : 1, color: _colorFilter == color ? foreground : const Color(0x1a000000)))))),
+              ]),
+            ],
+            const SizedBox(height: 32),
+          ],
           if (_error != null) Padding(padding: const EdgeInsets.all(24), child: Column(children: [Text(_error!), TextButton(onPressed: _reload, child: const Text('Retry'))])),
           if (_loading) const Padding(padding: EdgeInsets.all(60), child: Center(child: CircularProgressIndicator()))
           else if (filtered.isEmpty && _error == null) Padding(padding: const EdgeInsets.only(top: 80),
@@ -262,12 +292,12 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           else if (_view == NoteView.trash) _cards(filtered, columns)
           else ...[
             if (pinned.isNotEmpty) ...[
-              const Padding(padding: EdgeInsets.only(left: 4, bottom: 16), child: Text('PINNED', style: section)),
+              const Padding(padding: EdgeInsets.only(left: 4, bottom: 16), child: Text('📌 PINNED', style: section)),
               _cards(pinned, columns),
             ],
-            if (others.isNotEmpty) ...[
-              if (pinned.isNotEmpty) const Padding(padding: EdgeInsets.only(top: 48, left: 4, bottom: 16), child: Text('OTHERS', style: section)),
-              _cards(others, columns),
+            if (displayed.isNotEmpty) ...[
+              Padding(padding: EdgeInsets.only(top: pinned.isNotEmpty ? 32 : 0, left: 4, bottom: 16), child: Text(_tierFilter == 'alarm' ? '🔥 ALARM' : _tierFilter == 'scheduled' ? '⏰ SCHEDULED' : '📄 NOTES', style: section)),
+              _cards(displayed, columns),
             ],
           ],
           const SizedBox(height: 32),

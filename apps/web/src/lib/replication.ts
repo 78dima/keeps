@@ -14,10 +14,10 @@ let realtimeChannel: RealtimeChannel | null = null;
 let cleanup: (() => void) | null = null;
 let generation = 0;
 
-// Explicit allowlists keep server-only fields (including existing was_sent_once) out of RxDB.
+// Explicit allowlists keep server-only fields out of RxDB.
 const common = ['id', 'userId', 'updatedAt', 'editId', 'syncDeleted'];
 const noteFields = [...common, 'title', 'content', 'color', 'isPinned', 'isArchived', 'isDeleted',
-    'reminderDate', 'isReminderSent', 'tags', 'createdAt'];
+    'reminderDate', 'isReminderSent', 'reminderEnabled', 'reminderVersion', 'sortAt', 'wasSentOnce', 'tags', 'createdAt'];
 const snake = (key: string) => key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 function fromServer<T extends Synced>(entity: string, row: Row): RxDocumentData<T> {
     const doc: Row = {};
@@ -25,10 +25,16 @@ function fromServer<T extends Synced>(entity: string, row: Row): RxDocumentData<
         doc[key] = row[snake(key)];
     }
     doc.updatedAt = new Date(String(doc.updatedAt)).toISOString();
-    for (const key of ['createdAt', 'reminderDate']) {
+    for (const key of ['createdAt', 'reminderDate', 'sortAt']) {
         if (doc[key]) doc[key] = new Date(String(doc[key])).toISOString();
     }
     doc.editId = doc.editId || ZERO_EDIT;
+    if (entity === 'notes') {
+        doc.sortAt = doc.sortAt || doc.updatedAt;
+        doc.reminderEnabled = doc.reminderEnabled ?? true;
+        doc.reminderVersion = doc.reminderVersion || ZERO_EDIT;
+        doc.wasSentOnce = doc.wasSentOnce ?? false;
+    }
     // Keep tombstones as normal RxDB documents, so a later offline edit can win by time.
     doc._deleted = false;
     return doc as unknown as RxDocumentData<T>;
@@ -90,7 +96,7 @@ export function createSyncHandlers<T extends Synced>(entity: string, userId: str
                 return (data.rows as Row[]).flatMap((row, i) => {
                     const remote = fromServer<T>(entity, row), local = own[i].newDocumentState;
                     return compareEdits(remote, local) > 0 ||
-                        ('isReminderSent' in remote && remote.isReminderSent !== (local as NoteDocType).isReminderSent)
+                        ('isReminderSent' in remote && (remote.isReminderSent !== (local as NoteDocType).isReminderSent || remote.sortAt !== (local as NoteDocType).sortAt || remote.wasSentOnce !== (local as NoteDocType).wasSentOnce))
                         ? [remote] : [];
                 });
             },

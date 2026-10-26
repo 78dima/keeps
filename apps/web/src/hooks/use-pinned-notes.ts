@@ -12,6 +12,7 @@ interface PinnedNotesState {
 }
 
 let sub: Subscription | null = null;
+let generation = 0;
 
 export const usePinnedNotes = create<PinnedNotesState>((set) => ({
     notes: [],
@@ -19,9 +20,11 @@ export const usePinnedNotes = create<PinnedNotesState>((set) => ({
     init: async (userId: string) => {
         if (typeof window === 'undefined') return;
 
-        const db = await getDatabase();
-
+        const current = ++generation;
+        set({ notes: [], isLoading: !!userId });
         if (sub) sub.unsubscribe();
+        const db = await getDatabase();
+        if (current !== generation) return;
 
         // If no user, clear notes and return
         if (!userId) {
@@ -37,15 +40,17 @@ export const usePinnedNotes = create<PinnedNotesState>((set) => ({
                 isArchived: false,
                 syncDeleted: { $ne: true }
             },
-            sort: [{ updatedAt: 'desc' }]
+            sort: [{ sortAt: 'desc' }]
         });
 
         sub = query.$.subscribe((docs: RxDocument<NoteDocType>[]) => {
+            if (current !== generation) return;
             const mapped = docs.map((doc) => {
                 const data = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
                 return {
                     ...data,
                     updatedAt: new Date(data.updatedAt),
+                    sortAt: new Date(data.sortAt || data.updatedAt),
                     createdAt: new Date(data.createdAt || new Date()), // Добавил fallback
                     deletedAt: data.deletedAt ? new Date(data.deletedAt) : null,
                     reminderDate: data.reminderDate ? new Date(data.reminderDate) : null,

@@ -42,7 +42,6 @@ export default function RegisterPage() {
             }
 
             if (authData.session) {
-                localStorage.setItem('token', authData.session.access_token);
                 toast({ title: 'Welcome!', description: 'Account created successfully.' });
                 router.push('/');
             } else if (authData.user && !authData.session) {

@@ -4,7 +4,7 @@ import { getDatabase, NoteDocType } from '@/lib/db';
 import { replicateCollections, cancelReplication } from '@/lib/replication';
 import { supabase } from '@/lib/supabase';
 import { Subscription } from 'rxjs';
-import { newEdit } from '@/lib/sync-protocol';
+import { newEdit, noteEditMetadata } from '@/lib/sync-protocol';
 
 interface KeepNoteImport {
     id?: string;
@@ -15,9 +15,12 @@ interface KeepNoteImport {
     isPinned?: boolean;
     isArchived?: boolean;
     isTrashed?: boolean;
+    isReminderSent?: boolean;
+    reminderDate?: string;
     createdTimestampUsec?: number;
     userEditedTimestampUsec?: number;
     createdAt?: string;
+    labels?: { name: string }[];
     tags?: { name: string }[];
     [key: string]: unknown;
 }
@@ -55,21 +58,18 @@ interface NotesState {
     triggerRefresh: () => void;
 }
 
+// Display order is independent from the edit timestamp used by LWW.
 const sortNotes = (posts: NoteResponseDto[]) => {
     return [...posts].sort((a, b) => {
-        // 1. Reminder Sent (Top Priority)
-        if (a.isReminderSent && !b.isReminderSent) return -1;
-        if (!a.isReminderSent && b.isReminderSent) return 1;
+        // 1. Pinned always at the top
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
 
-        // 2. Date (Newest first)
-        const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        // 2. All non-pinned — most recently updated first
+        const dateA = a.updatedAt ? new Date(a.sortAt || a.updatedAt).getTime() : 0;
+        const dateB = b.updatedAt ? new Date(b.sortAt || b.updatedAt).getTime() : 0;
+        if (dateA !== dateB) return dateB - dateA;
 
-        if (dateA !== dateB) {
-            return dateB - dateA;
-        }
-
-        // 3. Fallback to ID string comparison for stability
+        // 3. Stable fallback
         return a.id.localeCompare(b.id);
     });
 };
@@ -208,7 +208,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
         const query = db.notes.find({
             selector,
-            sort: [{ updatedAt: 'desc' }]
+            sort: [{ sortAt: 'desc' }]
         });
 
         dbSubscription = query.$.subscribe((docs: NoteDocType[]) => {
@@ -219,6 +219,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                 return {
                     ...data,
                     updatedAt: new Date(data.updatedAt),
+                    sortAt: new Date(data.sortAt || data.updatedAt),
                     createdAt: data.createdAt ? new Date(data.createdAt) : new Date(),
                     reminderDate: data.reminderDate ? new Date(data.reminderDate) : null,
                     tags: data.tags || [],
@@ -245,18 +246,23 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             name: tag
         }));
 
+        const edit = newEdit();
         await db.notes.insert({
             id: crypto.randomUUID(),
             ...note,
             title: note.title || 'Untitled',
             content: note.content || '',
             createdAt: new Date().toISOString(),
-            ...newEdit(),
+            ...edit,
+            sortAt: edit.updatedAt,
+            reminderEnabled: true,
+            reminderVersion: edit.editId,
             syncDeleted: false,
             isDeleted: false,
             isArchived: false,
             isPinned: false,
             isReminderSent: false,
+            wasSentOnce: false,
             reminderDate: note.reminderDate ? new Date(note.reminderDate).toISOString() : null,
             tags,
             userId: userId
@@ -279,22 +285,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             delete updateData.deleted; // Mapped from syncDeleted
 
             // 2. Convert Date objects to ISO strings
-            const dateFields = ['createdAt', 'updatedAt', 'deletedAt', 'reminderDate'];
+            const dateFields = ['createdAt', 'updatedAt', 'sortAt', 'deletedAt', 'reminderDate'];
             dateFields.forEach(field => {
                 if (updateData[field] instanceof Date) {
                     updateData[field] = updateData[field].toISOString();
                 }
             });
 
-            // 3. Explicitly handle specific fields logic
-            Object.assign(updateData, newEdit(existing.updatedAt));
-
-            if (note.reminderDate !== undefined) {
-                updateData.reminderDate = note.reminderDate ? new Date(note.reminderDate).toISOString() : null;
-                updateData.isReminderSent = updateData.reminderDate !== (existing.reminderDate || null) ? false : existing.isReminderSent;
-            } else {
-                delete updateData.isReminderSent;
-            }
+            // Every user change receives a new edit version; ordinary edits keep their position.
+            if (note.reminderDate !== undefined) updateData.reminderDate = note.reminderDate ? new Date(note.reminderDate).toISOString() : null;
+            Object.assign(updateData, noteEditMetadata(existing.toJSON(), updateData));
 
             // 4. Handle Tags: Ensure they are correctly formatted
             if (note.tags) {
@@ -361,24 +361,29 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             return;
         }
 
-        const notesToInsert = notesData.map(n => ({
+        const notesToInsert = notesData.map(n => { const edit = newEdit(); return ({
             id: n.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n.id) ? n.id : crypto.randomUUID(),
             title: n.title || 'Untitled',
             content: n.content || n.textContent || '',
             color: n.color || null,
             createdAt: n.createdTimestampUsec ? new Date(n.createdTimestampUsec / 1000).toISOString() : new Date().toISOString(),
-            ...newEdit(),
+            ...edit,
+            sortAt: edit.updatedAt,
+            reminderEnabled: true,
+            reminderVersion: edit.editId,
+            wasSentOnce: !!n.isReminderSent,
             syncDeleted: false,
             isDeleted: n.isTrashed || false,
             isArchived: n.isArchived || false,
             isPinned: n.isPinned || false,
-            isReminderSent: false,
-            tags: (n.tags || []).map(t => ({
+            reminderDate: n.reminderDate || null,
+            isReminderSent: n.isReminderSent || false,
+            tags: (n.labels || n.tags || []).map(t => ({
                 id: crypto.randomUUID(),
                 name: t.name
             })),
             userId: userId
-        }));
+        }); });
 
         try {
             await db.notes.bulkInsert(notesToInsert);

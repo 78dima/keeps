@@ -30,19 +30,17 @@ class NoteCard extends StatelessWidget {
             if (note.reminderDate != null || note.isReminderSent || note.tags.isNotEmpty) ...[
               const SizedBox(height: 16),
               Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                if (note.isReminderSent) InkWell(
-                  onTap: note.isDeleted ? null : onResetReminder,
-                  child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                    decoration: BoxDecoration(color: const Color(0xfff0fdf4), border: Border.all(color: const Color(0xffbbf7d0)), borderRadius: BorderRadius.circular(2)),
-                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                      KeepIcon(KeepGlyph.checks, size: 12, color: Color(0xff15803d)), SizedBox(width: 4),
-                      Flexible(child: Text('Уведомление отправлено', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xff15803d)))),
-                    ]),
-                  ),
+                if (note.isReminderSent && note.reminderEnabled) Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: const Color(0xfffff0bf), border: Border.all(color: const Color(0xfffde68a)), borderRadius: BorderRadius.circular(20)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const KeepIcon(KeepGlyph.checks, size: 12, color: Color(0xffb45309)), const SizedBox(width: 6),
+                    Flexible(child: Text(note.reminderDate == null ? 'Отправлено' : reminderLabel(note.reminderDate!), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xffb45309)))),
+                  ]),
                 ) else if (note.reminderDate != null) Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(color: const Color(0x0d000000), borderRadius: BorderRadius.circular(2)),
-                  child: Text('⏰ ${reminderLabel(note.reminderDate!)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: muted)),
+                  child: Text('${note.reminderEnabled ? '⏰' : '🔕'} ${reminderLabel(note.reminderDate!)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: muted)),
                 ),
                 for (final tag in note.tags) Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),

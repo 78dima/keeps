@@ -75,6 +75,31 @@ void main() {
     expect(store.rows.single.content, 'Do not lose me');
   });
 
+  testWidgets('tier and color filters retain pins and bell disables without changing the date', (tester) async {
+    tester.view.physicalSize = const Size(390, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize); addTearDown(tester.view.resetDevicePixelRatio);
+    final store=MemoryStore();
+    final when=DateTime.now().add(const Duration(days:1)).millisecondsSinceEpoch;
+    await store.save({'title':'Pinned','isPinned':true,'color':'#f28b82'});
+    await store.save({'title':'Scheduled red','reminderDate':when,'color':'#f28b82'});
+    await store.save({'title':'Delivered blue','reminderDate':when,'color':'#aecbfa','isReminderSent':true});
+    await tester.pumpWidget(MonoKeepApp(store:store)); await tester.pumpAndSettle();
+    expect(find.byType(NoteCard),findsNWidgets(3));
+    await tester.tap(find.byKey(const Key('tier-scheduled'))); await tester.pumpAndSettle();
+    expect(find.byType(NoteCard),findsNWidgets(2));
+    expect(find.text('Delivered blue'),findsNothing);
+    await tester.tap(find.byKey(const Key('tier-all'))); await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('filter-color-#f28b82'))); await tester.pumpAndSettle();
+    expect(find.byType(NoteCard),findsNWidgets(2));
+    await tester.tap(find.text('Scheduled red')); await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Уведомление будет отправлено')); await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('editor-save'))); await tester.pumpAndSettle();
+    final saved=store.rows.firstWhere((note)=>note.title=='Scheduled red');
+    expect(saved.reminderEnabled,false); expect(saved.reminderDate!.millisecondsSinceEpoch,when);
+    expect(tester.takeException(),isNull);
+  });
+
   for (final width in [320.0, 640.0, 800.0, 1280.0]) {
     testWidgets('cards and editor fit at width $width', (tester) async {
       tester.view.physicalSize = Size(width, 900);

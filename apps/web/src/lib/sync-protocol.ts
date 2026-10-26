@@ -31,3 +31,17 @@ export function newEdit(previous?: string) {
     last = now;
     return { updatedAt: new Date(now).toISOString(), editId: crypto.randomUUID() };
 }
+
+type ReminderState = Versioned & { sortAt?: string; isPinned?: boolean; reminderDate?: string | null; reminderEnabled?: boolean; reminderVersion?: string };
+export function noteEditMetadata(existing: ReminderState, patch: Partial<ReminderState>) {
+    const edit = newEdit(existing.updatedAt);
+    const dateChanged = patch.reminderDate !== undefined && patch.reminderDate !== (existing.reminderDate || null);
+    const intentChanged = dateChanged || patch.reminderEnabled !== undefined;
+    const enabled = patch.reminderEnabled ?? (dateChanged ? true : existing.reminderEnabled ?? true);
+    return { ...edit,
+        sortAt: patch.isPinned !== undefined && patch.isPinned !== existing.isPinned ? edit.updatedAt : existing.sortAt || existing.updatedAt,
+        reminderEnabled: enabled,
+        reminderVersion: intentChanged ? edit.editId : existing.reminderVersion || ZERO_EDIT,
+        isReminderSent: intentChanged ? !enabled : existing.isReminderSent || false,
+    };
+}

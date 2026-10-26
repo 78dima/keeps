@@ -42,15 +42,6 @@ export default function LoginPage() {
             }
 
             if (authData.session) {
-                // Store token for legacy logic compatibility if needed, 
-                // but ideally use supabase.auth.getSession() everywhere.
-                // Our useNotesStore and usePinnedNotes check 'sb-access-token' or 'token'.
-                // Supabase optionally persists to localStorage 'sb-<ref>-auth-token'.
-                // We'll manually set 'token' to support existing code that looks for it,
-                // OR update existing code to look for Supabase cookie/storage.
-                // For now, let's sync it.
-                localStorage.setItem('token', authData.session.access_token);
-
                 toast({ title: 'Welcome back!', description: 'Logged in successfully.' });
                 router.push('/');
             }

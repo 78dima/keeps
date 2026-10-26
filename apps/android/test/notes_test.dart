@@ -9,14 +9,14 @@ Note note(String id, {bool sent = false, int updated = 1, bool pinned = false, b
 );
 
 void main() {
-  test('sent reminders outrank newer notes, dates descend, ties use ID', () {
+  test('dates descend and ties use ID independently from delivery', () {
     final notes = [note('z', updated: 1000), note('b', sent: true, updated: 2), note('a', sent: true, updated: 2), note('c', sent: true, updated: 5)];
     notes.sort(Note.compare);
-    expect(notes.map((n) => n.id), ['c', 'a', 'b', 'z']);
+    expect(notes.map((n) => n.id), ['z', 'c', 'a', 'b']);
   });
-  test('pin grouping does not change reminder/date ordering within groups', () {
+  test('pinned notes stay first with a stable tie breaker', () {
     final notes = [note('p', pinned: true), note('p-sent', pinned: true, sent: true), note('other', updated: 100)]..sort(Note.compare);
-    expect(notes.where((n) => n.isPinned).map((n) => n.id), ['p-sent', 'p']);
+    expect(notes.where((n) => n.isPinned).map((n) => n.id), ['p', 'p-sent']);
   });
   test('search is literal, case-insensitive and includes Cyrillic tags', () {
     final n = note('1');

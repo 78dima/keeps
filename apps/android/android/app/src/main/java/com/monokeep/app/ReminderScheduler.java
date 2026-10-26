@@ -64,7 +64,7 @@ public final class ReminderScheduler {
         String id = (String) note.get("id");
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
         alarms.cancel(alarmIntent(context, id));
-        if (Boolean.TRUE.equals(note.get("isDeleted")) || note.get("reminderDate") == null) {
+        if (Boolean.TRUE.equals(note.get("isDeleted")) || Boolean.FALSE.equals(note.get("reminderEnabled")) || note.get("reminderDate") == null) {
             notifications(context).cancel(id, 0);
             return;
         }
@@ -93,7 +93,7 @@ public final class ReminderScheduler {
         NoteDatabase db = NoteDatabase.get(context);
         Map<String, Object> note = db.find(id);
         if (note == null || Boolean.TRUE.equals(note.get("isDeleted")) ||
-                Boolean.TRUE.equals(note.get("isReminderSent")) || note.get("reminderDate") == null) return;
+                Boolean.TRUE.equals(note.get("isReminderSent")) || Boolean.FALSE.equals(note.get("reminderEnabled")) || note.get("reminderDate") == null) return;
         long when = ((Number) note.get("reminderDate")).longValue();
         if (when > System.currentTimeMillis()) {
             reconcile(context, note);
