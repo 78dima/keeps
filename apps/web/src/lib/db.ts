@@ -154,10 +154,10 @@ const createDatabase = async (): Promise<MyDatabase> => {
     });
 
     await db.addCollections({
-        notes: { schema: noteSchema, migrationStrategies: { 1: (doc) => ({ ...doc, editId: doc.editId || ZERO_EDIT }) },
+        notes: { schema: noteSchema, migrationStrategies: { 1: (doc) => (() => { const clean = { ...doc }; delete clean.syncRevision; delete clean.wasSentOnce; return { ...clean, editId: doc.editId || ZERO_EDIT }; })() },
             conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0 && a.isReminderSent === b.isReminderSent,
                 resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } },
-        tags: { schema: tagSchema, migrationStrategies: { 1: (doc) => ({ ...doc, editId: doc.editId || ZERO_EDIT }) },
+        tags: { schema: tagSchema, migrationStrategies: { 1: (doc) => (() => { const clean = { ...doc }; delete clean.syncRevision; delete clean.wasSentOnce; return { ...clean, editId: doc.editId || ZERO_EDIT }; })() },
             conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0,
                 resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } }
     });

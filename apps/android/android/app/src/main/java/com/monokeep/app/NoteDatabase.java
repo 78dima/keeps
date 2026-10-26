@@ -290,6 +290,8 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 if (local != null && Objects.equals(local.get("reminderDate"), next.get("reminderDate")))
                     next.put("isReminderSent", local.get("isReminderSent"));
                 db.insertWithOnConflict("notes", null, values(next), SQLiteDatabase.CONFLICT_REPLACE);
+                if (Boolean.TRUE.equals(next.get("syncDeleted")) && owner.equals(SyncSession.owner(context)))
+                    ReminderScheduler.cancel(context, id);
                 // A newer winning server edit supersedes an older pending local snapshot too.
                 if (local != null) db.delete("sync_outbox", "note_id = ? AND owner_id = ? AND edit_id = ?",
                     new String[]{id, owner, (String) local.get("editId")});

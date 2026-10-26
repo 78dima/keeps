@@ -13,6 +13,7 @@ final class SyncRealtime {
     private static ScheduledFuture<?> heartbeat,reconnect;
     private static long generation,ref;
     private static boolean foreground;
+    static synchronized boolean isForeground() { return foreground; }
     static synchronized void start(Context context) {
         stop(); foreground=true;
         Context app=context.getApplicationContext(); long expected=generation;

@@ -31,7 +31,7 @@ function fromServer<T extends Synced>(entity: string, row: Row): RxDocumentData<
     doc.editId = doc.editId || ZERO_EDIT;
     // Keep tombstones as normal RxDB documents, so a later offline edit can win by time.
     doc._deleted = false;
-    return doc as RxDocumentData<T>;
+    return doc as unknown as RxDocumentData<T>;
 }
 function toServer(entity: string, doc: Synced, userId: string): Row {
     if (doc.userId !== userId) throw new Error('Account changed during synchronization');

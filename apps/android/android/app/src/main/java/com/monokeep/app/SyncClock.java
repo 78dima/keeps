@@ -10,7 +10,7 @@ final class SyncClock {
         long elapsed = SystemClock.elapsedRealtime();
         long calibrated = anchorServer != 0 && elapsed >= anchorElapsed ? anchorServer + elapsed - anchorElapsed :
             System.currentTimeMillis() + c.getSharedPreferences("sync-clock", 0).getLong("offset", 0);
-        return Math.max(calibrated, previous + 1);
+        return Math.max(calibrated, previous <= calibrated + 300000 ? previous + 1 : 0);
     }
     static synchronized void sample(Context c, String server, long startWall, long startElapsed) {
         long elapsed = SystemClock.elapsedRealtime(), duration = elapsed - startElapsed;

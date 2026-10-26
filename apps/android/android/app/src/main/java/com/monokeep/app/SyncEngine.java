@@ -24,6 +24,7 @@ public final class SyncEngine {
     private static JSONObject config;
     private static volatile String error = "";
     private static volatile boolean running;
+    private static final java.util.concurrent.atomic.AtomicBoolean foregroundQueued = new java.util.concurrent.atomic.AtomicBoolean();
     private static final Object LOCK = new Object();
     static synchronized JSONObject config(Context c) throws Exception {
         if (config == null) {
@@ -51,6 +52,10 @@ public final class SyncEngine {
                     throw new IOException("Sign in again or check your email and password");
                 throw new IOException("Sync request failed (HTTP " + response.code() + ")");
             }
+            String date = response.header("Date");
+            if (date != null) try {
+                SyncClock.sample(c, java.time.ZonedDateTime.parse(date, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toString(), wall, elapsed);
+            } catch (Exception ignored) { /* RPC clock below is more precise. */ }
             JSONObject result = new JSONObject(text);
             if (result.has("server_time")) SyncClock.sample(c, result.getString("server_time"), wall, elapsed);
             return result;
@@ -107,6 +112,13 @@ public final class SyncEngine {
     }
     public static void request(Context c) {
         if (SyncSession.owner(c).isEmpty()) return;
+        if (SyncRealtime.isForeground() && foregroundQueued.compareAndSet(false,true)) {
+            NETWORK.execute(() -> {
+                try { synchronize(c.getApplicationContext()); }
+                catch (Exception ignored) { /* WorkManager persists and retries this same work. */ }
+                finally { foregroundQueued.set(false); }
+            });
+        }
         WorkManager.getInstance(c).enqueueUniqueWork("monokeep-sync-now", ExistingWorkPolicy.APPEND_OR_REPLACE,
             new OneTimeWorkRequest.Builder(SyncWorker.class)
                 .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

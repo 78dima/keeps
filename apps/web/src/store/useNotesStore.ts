@@ -127,7 +127,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                     get().setViewMode(viewMode);
                 } else if (!newUserId && prevUserId) {
                     // User logged out
-                    set({ userId: '', notes: [] });
+                    set({ userId: '', notes: [], selectedNote: null, isEditModalOpen: false });
                     await cancelReplication();
 
                     if (dbSubscription) {
@@ -222,6 +222,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         });
 
         dbSubscription = query.$.subscribe((docs: NoteDocType[]) => {
+            if (get().userId !== userId) return;
             const mappedNotes = docs.map(doc => {
                 // @ts-expect-error - RxDocument toJSON
                 const data = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
@@ -368,7 +369,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         }
 
         const notesToInsert = notesData.map(n => ({
-            id: n.id || crypto.randomUUID(),
+            id: n.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n.id) ? n.id : crypto.randomUUID(),
             title: n.title || 'Untitled',
             content: n.content || n.textContent || '',
             color: n.color || null,

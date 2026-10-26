@@ -78,6 +78,26 @@ jobs:
         env:
           MONOKEEP_BUILD_MODE: ${{ inputs.mode || 'debug' }}
         run: ./tools/build_apk.sh
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test real SQLite migrations and offline sync on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: apps/android/android
+          script: ./gradlew connectedDebugAndroidTest
+      - name: Upload Android test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-results
+          path: apps/android/build/app/reports/androidTests/
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

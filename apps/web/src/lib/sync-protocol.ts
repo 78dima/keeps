@@ -21,11 +21,13 @@ export function calibrateClock(serverTime: string, startedAt: number, finishedAt
     const sample = Date.parse(serverTime) - (startedAt + finishedAt) / 2;
     if (!Number.isFinite(sample)) return;
     offset = sample;
+    if (last > Date.parse(serverTime) + 300000) last = 0;
     try { localStorage.setItem('monokeep-clock-offset', String(offset)); } catch { /* private mode */ }
 }
 export function newEdit(previous?: string) {
     const previousTime = previous ? Date.parse(previous) : 0;
-    const now = Math.max(Math.round(Date.now() + offset), last + 1, previousTime + 1);
+    const wall = Math.round(Date.now() + offset);
+    const now = Math.max(wall, last + 1, previousTime <= wall + 300000 ? previousTime + 1 : 0);
     last = now;
     return { updatedAt: new Date(now).toISOString(), editId: crypto.randomUUID() };
 }
