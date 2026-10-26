@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+    id 'dev.flutter.flutter-gradle-plugin'
+}
+
+def signingFile = rootProject.file('key.properties')
+def signing = new Properties()
+if (signingFile.exists()) signingFile.withInputStream { signing.load(it) }
+
+android {
+    namespace 'com.monokeep.app'
+    compileSdk 35
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    defaultConfig {
+        applicationId 'com.monokeep.app'
+        minSdk 23
+        targetSdk 35
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    signingConfigs {
+        if (signingFile.exists()) {
+            release {
+                keyAlias signing['keyAlias']
+                keyPassword signing['keyPassword']
+                storeFile rootProject.file(signing['storeFile'])
+                storePassword signing['storePassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // A release build must use a persistent private key; never silently use the debug key.
+            if (signingFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+}
+flutter { source '../..' }
+dependencies {
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+}

@@ -1,0 +1,31 @@
+name: monokeep
+description: MonoKeep for Android. Flutter UI and native, offline SQLite storage.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+  flutter: '>=3.32.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/DMSans-OFL.txt
+    - assets/fonts/Outfit-OFL.txt
+  fonts:
+    - family: DM Sans
+      fonts:
+        - asset: assets/fonts/DMSans.ttf
+    - family: Outfit
+      fonts:
+        - asset: assets/fonts/Outfit.ttf

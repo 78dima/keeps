@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+set -eu
+MONOKEEP_GRADLE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${JAVA_HOME:-}" ]; then
+  MONOKEEP_JAVA="$JAVA_HOME/bin/java"
+else
+  MONOKEEP_JAVA=java
+fi
+if [ ! -f "$MONOKEEP_GRADLE_DIR/gradle/wrapper/gradle-wrapper.jar" ]; then
+  echo 'Run python3 tools/prepare.py from apps/android first.' >&2
+  exit 1
+fi
+exec "$MONOKEEP_JAVA" -Dorg.gradle.appname=gradlew -classpath "$MONOKEEP_GRADLE_DIR/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
