@@ -29,7 +29,7 @@ const isClient = typeof window !== 'undefined';
 
 // --- СХЕМЫ ---
 
-const noteSchema = {
+export const noteSchema = {
     version: 1,
     primaryKey: 'id',
     type: 'object',

@@ -28,7 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=@monokeep/shared
-      - run: node --experimental-strip-types --test apps/web/tests/sync-protocol.test.mjs
+      - run: node --experimental-strip-types --test apps/web/tests/*.test.mjs
       - run: npx tsc --noEmit -p apps/web/tsconfig.json
       - name: Web production build
         env:

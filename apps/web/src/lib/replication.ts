@@ -50,7 +50,7 @@ export async function cancelReplication() {
     notesReplication = null; tagsReplication = null; realtimeChannel = null;
     await Promise.all([oldNotes?.cancel(), oldTags?.cancel(), oldChannel ? supabase.removeChannel(oldChannel) : null]);
 }
-function handlers<T extends Synced>(entity: string, userId: string, activeGeneration: number) {
+export function createSyncHandlers<T extends Synced>(entity: string, userId: string, activeGeneration: number, client: Pick<typeof supabase, 'rpc'> = supabase) {
     const assertActive = () => { if (generation !== activeGeneration) throw new Error('Sync account changed'); };
     return {
         pull: {
@@ -58,7 +58,7 @@ function handlers<T extends Synced>(entity: string, userId: string, activeGenera
             handler: async (checkpoint: Checkpoint | undefined, batchSize: number) => {
                 assertActive();
                 const started = Date.now();
-                const { data, error } = await supabase.rpc('sync_pull', {
+                const { data, error } = await client.rpc('sync_pull', {
                     entity, after_revision: checkpoint?.revision || '0', page_size: batchSize,
                 });
                 if (error) throw error;
@@ -80,7 +80,7 @@ function handlers<T extends Synced>(entity: string, userId: string, activeGenera
                 if (!own.length) return [];
                 assertActive();
                 const started = Date.now();
-                const { data, error } = await supabase.rpc('sync_push', {
+                const { data, error } = await client.rpc('sync_push', {
                     entity, documents: own.map(change => toServer(entity, change.newDocumentState, userId)),
                 });
                 if (error) throw error;
@@ -105,11 +105,11 @@ export async function replicateCollections(collections: MyDatabaseCollections, u
     // A fresh identifier performs a full pull after upgrading the old timestamp protocol.
     notesReplication = replicateRxCollection<NoteDocType, Checkpoint>({
         collection: collections.notes, replicationIdentifier: `notes-sync-v2-${userId}`,
-        ...handlers<NoteDocType>('notes', userId, current), live: true, retryTime: 15000, waitForLeadership: false,
+        ...createSyncHandlers<NoteDocType>('notes', userId, current), live: true, retryTime: 15000, waitForLeadership: false,
     });
     tagsReplication = replicateRxCollection<TagDocType, Checkpoint>({
         collection: collections.tags, replicationIdentifier: `tags-sync-v2-${userId}`,
-        ...handlers<TagDocType>('tags', userId, current), live: true, retryTime: 15000, waitForLeadership: false,
+        ...createSyncHandlers<TagDocType>('tags', userId, current), live: true, retryTime: 15000, waitForLeadership: false,
     });
     const resync = () => {
         if (generation !== current) return;
