@@ -40,15 +40,15 @@ if ! gh run watch "$MONOKEEP_RUN" --repo "$MONOKEEP_REPOSITORY" --interval 10 --
 fi
 MONOKEEP_OUTPUT="$MONOKEEP_APP/dist/cloud-$MONOKEEP_RUN"
 mkdir -p "$MONOKEEP_OUTPUT"
-if [[ ! -f "$MONOKEEP_OUTPUT/monokeep-debug.apk" || ! -f "$MONOKEEP_OUTPUT/monokeep-debug.apk.sha256" ]]; then
+if [[ ! -f "$MONOKEEP_OUTPUT/monokeep-release.apk" || ! -f "$MONOKEEP_OUTPUT/monokeep-release.apk.sha256" ]]; then
   gh run download "$MONOKEEP_RUN" --repo "$MONOKEEP_REPOSITORY" \
-    --name monokeep-android-debug --dir "$MONOKEEP_OUTPUT"
+    --name monokeep-android-release --dir "$MONOKEEP_OUTPUT"
 fi
 python3 - "$MONOKEEP_OUTPUT" <<'PY'
 import hashlib, pathlib, sys
 directory = pathlib.Path(sys.argv[1])
-apk = directory / 'monokeep-debug.apk'
-checksum = (directory / 'monokeep-debug.apk.sha256').read_text().split()[0]
+apk = directory / 'monokeep-release.apk'
+checksum = (directory / 'monokeep-release.apk.sha256').read_text().split()[0]
 if hashlib.sha256(apk.read_bytes()).hexdigest() != checksum:
     raise SystemExit('APK checksum mismatch')
 print(f'APK downloaded and verified: {apk}')

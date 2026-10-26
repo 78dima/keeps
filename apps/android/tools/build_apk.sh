@@ -25,7 +25,7 @@ python3 tools/prepare.py
 chmod +x android/gradlew
 
 # Keep a known test-key path across local and CI builds (AGP defaults vary by runner).
-if [[ "$MONOKEEP_BUILD_MODE" == debug && ! -f .toolchain/monokeep-debug.keystore ]]; then
+if [[ ! -f .toolchain/monokeep-debug.keystore ]]; then
   mkdir -p .toolchain
   (umask 077; keytool -genkeypair -noprompt -keystore .toolchain/monokeep-debug.keystore \
     -storetype JKS -storepass android -keypass android -alias androiddebugkey \
@@ -60,7 +60,7 @@ flutter pub get
 flutter analyze
 flutter test
 flutter build apk "--$MONOKEEP_BUILD_MODE"
-"$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --print-certs "build/app/outputs/flutter-apk/app-$MONOKEEP_BUILD_MODE.apk"
+python3 tools/verify_apk.py "build/app/outputs/flutter-apk/app-$MONOKEEP_BUILD_MODE.apk" "$MONOKEEP_BUILD_MODE"
 mkdir -p dist
 cp "build/app/outputs/flutter-apk/app-$MONOKEEP_BUILD_MODE.apk" "dist/monokeep-$MONOKEEP_BUILD_MODE.apk"
 export MONOKEEP_BUILD_MODE

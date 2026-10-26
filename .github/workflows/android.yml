@@ -13,8 +13,8 @@ on:
       mode:
         description: 'Debug APK or release signed with repository secrets'
         type: choice
-        options: [debug, release]
-        default: debug
+        options: [release, debug]
+        default: release
 permissions:
   contents: read
 jobs:
@@ -87,7 +87,7 @@ jobs:
       - name: Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
       - name: Restore release signing key
-        if: inputs.mode == 'release'
+        if: (inputs.mode || 'release') == 'release'
         env:
           KEYSTORE: ${{ secrets.MONOKEEP_KEYSTORE_BASE64 }}
           KEY_PROPERTIES: ${{ secrets.MONOKEEP_KEY_PROPERTIES_BASE64 }}
@@ -103,12 +103,12 @@ jobs:
           PY
       - name: Analyze, test, build and verify APK signature
         env:
-          MONOKEEP_BUILD_MODE: ${{ inputs.mode || 'debug' }}
+          MONOKEEP_BUILD_MODE: ${{ inputs.mode || 'release' }}
         run: ./tools/build_apk.sh
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: monokeep-android-${{ inputs.mode || 'debug' }}
+          name: monokeep-android-${{ inputs.mode || 'release' }}
           path: |
             apps/android/dist/*.apk
             apps/android/dist/*.sha256
@@ -131,9 +131,18 @@ jobs:
           script: |
             ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.monokeepFcmCheck=true
             cd .. && flutter test integration_test/app_test.dart -d emulator-5554
+            bash ../tools/check_release_launch.sh
       - name: Upload Android test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-test-results
           path: apps/android/build/app/reports/androidTests/
+      - name: Upload release launch evidence
+        if: always() && (inputs.mode || 'release') == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-launch-check
+          path: |
+            apps/android/dist/release-crash.log
+            apps/android/dist/release-home.png

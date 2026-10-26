@@ -39,6 +39,7 @@ android {
                 keyPassword signing['keyPassword']
                 storeFile rootProject.file(signing['storeFile'])
                 storePassword signing['storePassword']
+                storeType signing.getProperty('storeType', 'JKS')
             }
         }
     }
