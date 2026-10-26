@@ -55,6 +55,7 @@ void main() {
     await tester.tap(find.byTooltip('Move to Trash')); await tester.pumpAndSettle();
     expect(store.rows.single.isDeleted, true);
     await tester.tap(find.byTooltip('Open menu')); await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'The mobile sidebar header must fit its drawer.');
     await tester.tap(find.text('Trash')); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Restore')); await tester.pumpAndSettle();
     expect(store.rows.single.isDeleted, false);

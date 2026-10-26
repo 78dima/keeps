@@ -180,10 +180,11 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
     return Glass(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SizedBox(height: 60, child: Padding(padding: const EdgeInsets.only(left: 24, right: 8), child: Row(children: [
-        GestureDetector(onTap: () => _setView(NoteView.active), child: Text('MonoKeep', style: heading.copyWith(fontSize: 20))),
+        Expanded(child: GestureDetector(onTap: () => _setView(NoteView.active),
+          child: Text('MonoKeep', maxLines: 1, overflow: TextOverflow.ellipsis, style: heading.copyWith(fontSize: 20)))),
         const SizedBox(width: 8),
         Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3), decoration: BoxDecoration(color: const Color(0x0d000000), borderRadius: BorderRadius.circular(20)), child: const Text('Pro', style: TextStyle(fontSize: 12, color: muted))),
-        const Spacer(), if (mobile) IconAction(glyph: KeepGlyph.close, label: 'Close sidebar', onPressed: _closeDrawer),
+        if (mobile) ...[const SizedBox(width: 8), IconAction(glyph: KeepGlyph.close, label: 'Close sidebar', onPressed: _closeDrawer)],
       ]))),
       Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(12, 24, 12, 16), children: [
         link('Notes', KeepGlyph.bulb, () => _setView(NoteView.active), active: _view == NoteView.active),
