@@ -1,0 +1,31 @@
+/** Identical ordering on PostgreSQL, web and Android: edit time, then edit UUID. */
+export const ZERO_EDIT = '00000000-0000-0000-0000-000000000000';
+export type Versioned = { updatedAt: string; editId?: string; isReminderSent?: boolean };
+export function compareEdits(a: Versioned, b: Versioned): number {
+    const difference = Date.parse(a.updatedAt) - Date.parse(b.updatedAt);
+    if (difference) return difference;
+    const x = a.editId || ZERO_EDIT, y = b.editId || ZERO_EDIT;
+    return x === y ? 0 : x > y ? 1 : -1;
+}
+export function resolveEdit<T extends Versioned>(local: T, remote: T): T {
+    // Equal edit versions use server delivery metadata; delivery is not a user edit.
+    return compareEdits(local, remote) > 0 ? local : remote;
+}
+let offset = 0;
+let last = 0;
+if (typeof localStorage !== 'undefined') {
+    try { offset = Number(localStorage.getItem('monokeep-clock-offset')) || 0; } catch { /* private mode */ }
+}
+export function calibrateClock(serverTime: string, startedAt: number, finishedAt = Date.now()) {
+    if (finishedAt - startedAt > 10000) return;
+    const sample = Date.parse(serverTime) - (startedAt + finishedAt) / 2;
+    if (!Number.isFinite(sample)) return;
+    offset = sample;
+    try { localStorage.setItem('monokeep-clock-offset', String(offset)); } catch { /* private mode */ }
+}
+export function newEdit(previous?: string) {
+    const previousTime = previous ? Date.parse(previous) : 0;
+    const now = Math.max(Math.round(Date.now() + offset), last + 1, previousTime + 1);
+    last = now;
+    return { updatedAt: new Date(now).toISOString(), editId: crypto.randomUUID() };
+}

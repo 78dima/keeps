@@ -1,270 +1,128 @@
 import { replicateRxCollection, RxReplicationState } from 'rxdb/plugins/replication';
+import type { RxDocumentData, RxReplicationWriteToMasterRow } from 'rxdb';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { MyDatabaseCollections, NoteDocType, TagDocType } from './db';
 import { supabase } from './supabase';
-import { RxDocumentData } from 'rxdb';
-import { RealtimeChannel } from '@supabase/supabase-js';
+import { calibrateClock, compareEdits, ZERO_EDIT } from './sync-protocol';
 
-// --- CONFIGURATION ---
-
-const IS_DEV = process.env.NODE_ENV !== 'production';
-const RETRY_TIME_MS = 30_000; // 30s fallback polling (Realtime handles instant sync)
-const BATCH_SIZE = 50;
-
-const log = (...args: unknown[]) => {
-    if (IS_DEV) console.log('[Replication]', ...args);
-};
-
-// --- HELPER: Field Mapping ---
-
-const toSnakeCase = (str: string) =>
-    str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-
-const toCamelCase = (str: string) =>
-    str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-
-const mapToSupabase = (doc: Record<string, unknown>, userId: string): Record<string, unknown> => {
-    const mapped: Record<string, unknown> = {};
-
-    for (const key of Object.keys(doc)) {
-        if (key.startsWith('_')) continue; // Skip RxDB internals (_rev, _deleted, etc.)
-        mapped[toSnakeCase(key)] = doc[key];
-    }
-
-    // Force user_id for RLS compliance
-    mapped.user_id = userId;
-    delete mapped.userId; // Remove camelCase duplicate
-
-    return mapped;
-};
-
-const mapFromSupabase = (row: Record<string, unknown>): Record<string, unknown> => {
-    const mapped: Record<string, unknown> = {};
-
-    for (const key of Object.keys(row)) {
-        mapped[toCamelCase(key)] = row[key];
-    }
-
-    // CRITICAL: RxDB requires _deleted for replication to merge documents
-    mapped._deleted = !!row.sync_deleted;
-
-    return mapped;
-};
-
-// --- CHECKPOINT TYPE ---
-
-interface ReplicationCheckpoint {
-    updatedAt: string;
-    id: string;
-}
-
-// --- STATE ---
-
-let notesReplication: RxReplicationState<NoteDocType, ReplicationCheckpoint> | null = null;
-let tagsReplication: RxReplicationState<TagDocType, ReplicationCheckpoint> | null = null;
+type Checkpoint = { revision: string };
+type Synced = NoteDocType | TagDocType;
+type Row = Record<string, unknown>;
+let notesReplication: RxReplicationState<NoteDocType, Checkpoint> | null = null;
+let tagsReplication: RxReplicationState<TagDocType, Checkpoint> | null = null;
 let realtimeChannel: RealtimeChannel | null = null;
-let isPushInProgress = false;
+let cleanup: (() => void) | null = null;
+let generation = 0;
 
-// --- CLEANUP ---
-
-export const cancelReplication = async () => {
-    log('Cancelling all replications...');
-
-    if (notesReplication) {
-        await notesReplication.cancel();
-        notesReplication = null;
+// Explicit allowlists keep server-only fields (including existing was_sent_once) out of RxDB.
+const common = ['id', 'userId', 'updatedAt', 'editId', 'syncDeleted'];
+const noteFields = [...common, 'title', 'content', 'color', 'isPinned', 'isArchived', 'isDeleted',
+    'reminderDate', 'isReminderSent', 'tags', 'createdAt'];
+const snake = (key: string) => key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+function fromServer<T extends Synced>(entity: string, row: Row): RxDocumentData<T> {
+    const doc: Row = {};
+    for (const key of entity === 'notes' ? noteFields : [...common, 'name']) {
+        doc[key] = row[snake(key)];
     }
-
-    if (tagsReplication) {
-        await tagsReplication.cancel();
-        tagsReplication = null;
+    doc.updatedAt = new Date(String(doc.updatedAt)).toISOString();
+    for (const key of ['createdAt', 'reminderDate']) {
+        if (doc[key]) doc[key] = new Date(String(doc[key])).toISOString();
     }
-
-    if (realtimeChannel) {
-        supabase.removeChannel(realtimeChannel);
-        realtimeChannel = null;
+    doc.editId = doc.editId || ZERO_EDIT;
+    // Keep tombstones as normal RxDB documents, so a later offline edit can win by time.
+    doc._deleted = false;
+    return doc as RxDocumentData<T>;
+}
+function toServer(entity: string, doc: Synced, userId: string): Row {
+    if (doc.userId !== userId) throw new Error('Account changed during synchronization');
+    const row: Row = {};
+    for (const key of entity === 'notes' ? noteFields : [...common, 'name']) {
+        const value = (doc as unknown as Row)[key];
+        if (value !== undefined) row[snake(key)] = value;
     }
-
-    isPushInProgress = false;
-    log('All replications cancelled.');
-};
-
-// --- PULL HANDLER FACTORY ---
-
-function createPullHandler<T>(
-    tableName: string,
-    userId: string
-) {
-    return async (checkpoint: ReplicationCheckpoint | undefined, batchSize: number) => {
-        const updatedMin = checkpoint?.updatedAt ?? new Date(0).toISOString();
-        const lastId = checkpoint?.id ?? '';
-
-        log(`${tableName} pull | checkpoint: ${updatedMin} | lastId: ${lastId}`);
-
-        // Composite cursor query: get rows >= checkpoint timestamp,
-        // then filter out the exact checkpoint row (we already have it)
-        const { data, error } = await supabase
-            .from(tableName)
-            .select('*')
-            .eq('user_id', userId)
-            .gte('updated_at', updatedMin)
-            .order('updated_at', { ascending: true })
-            .order('id', { ascending: true })
-            .limit(batchSize + 1);
-
-        if (error) throw error;
-
-        let rows = data ?? [];
-
-        // Skip the exact checkpoint document (composite: same timestamp + same id)
-        if (lastId && rows.length > 0) {
-            const firstRow = rows[0];
-            if (firstRow.updated_at === updatedMin && firstRow.id === lastId) {
-                rows = rows.slice(1);
-            }
-        }
-
-        // Trim back to batchSize
-        if (rows.length > batchSize) {
-            rows = rows.slice(0, batchSize);
-        }
-
-        const documents = rows.map(
-            row => mapFromSupabase(row as Record<string, unknown>) as unknown as RxDocumentData<T>
-        );
-
-        // Composite checkpoint from last fetched row
-        const lastRow = rows[rows.length - 1];
-        const newCheckpoint: ReplicationCheckpoint = lastRow
-            ? { updatedAt: lastRow.updated_at, id: lastRow.id }
-            : { updatedAt: updatedMin, id: lastId };
-
-        log(`${tableName} pulled: ${documents.length} docs`);
-
-        return { documents, checkpoint: newCheckpoint };
+    row.edit_id = row.edit_id || ZERO_EDIT;
+    return row;
+}
+export async function cancelReplication() {
+    generation++;
+    cleanup?.(); cleanup = null;
+    const oldNotes = notesReplication, oldTags = tagsReplication, oldChannel = realtimeChannel;
+    notesReplication = null; tagsReplication = null; realtimeChannel = null;
+    await Promise.all([oldNotes?.cancel(), oldTags?.cancel(), oldChannel ? supabase.removeChannel(oldChannel) : null]);
+}
+function handlers<T extends Synced>(entity: string, userId: string) {
+    return {
+        pull: {
+            batchSize: 100,
+            handler: async (checkpoint: Checkpoint | undefined, batchSize: number) => {
+                const started = Date.now();
+                const { data, error } = await supabase.rpc('sync_pull', {
+                    entity, after_revision: checkpoint?.revision || '0', page_size: batchSize,
+                });
+                if (error) throw error;
+                calibrateClock(data.server_time, started);
+                const rows: Row[] = data.rows;
+                return {
+                    documents: rows.map(row => fromServer<T>(entity, row)),
+                    checkpoint: { revision: String(rows.at(-1)?.sync_revision || checkpoint?.revision || '0') },
+                };
+            },
+        },
+        push: {
+            batchSize: 25,
+            handler: async (changes: RxReplicationWriteToMasterRow<T>[]) => {
+                // Shared legacy RxDB contains multiple owners: never relabel their notes.
+                const own = changes.filter(change => change.newDocumentState.userId === userId);
+                if (!own.length) return [];
+                const started = Date.now();
+                const { data, error } = await supabase.rpc('sync_push', {
+                    entity, documents: own.map(change => toServer(entity, change.newDocumentState, userId)),
+                });
+                if (error) throw error;
+                calibrateClock(data.server_time, started);
+                return (data.rows as Row[]).flatMap((row, i) => {
+                    const remote = fromServer<T>(entity, row), local = own[i].newDocumentState;
+                    return compareEdits(remote, local) > 0 ||
+                        ('isReminderSent' in remote && remote.isReminderSent !== (local as NoteDocType).isReminderSent)
+                        ? [remote] : [];
+                });
+            },
+        },
     };
 }
-
-// --- PUSH HANDLER FACTORY ---
-
-function createPushHandler(
-    tableName: string,
-    userId: string
-) {
-    return async (changes: { newDocumentState: Record<string, unknown> }[]) => {
-        isPushInProgress = true;
-
-        try {
-            const rows = changes.map(change => mapToSupabase(change.newDocumentState, userId));
-
-            const { error } = await supabase
-                .from(tableName)
-                .upsert(rows);
-
-            if (error) throw error;
-            return [];
-        } finally {
-            // Small delay to let Realtime event pass before resetting flag
-            setTimeout(() => { isPushInProgress = false; }, 2000);
-        }
-    };
-}
-
-// --- MAIN ---
-
-export const replicateCollections = async (collections: MyDatabaseCollections, userId: string) => {
-    // Cancel any previous replication before starting new one
+export async function replicateCollections(collections: MyDatabaseCollections, userId: string) {
     await cancelReplication();
-
-    if (!userId) {
-        log('Skipped: no userId');
-        return;
-    }
-
-    log('Starting replication for user:', userId);
-
-    // --- NOTES ---
-    notesReplication = replicateRxCollection<NoteDocType, ReplicationCheckpoint>({
-        collection: collections.notes,
-        replicationIdentifier: `notes-supabase-${userId}`,
-        pull: {
-            handler: createPullHandler<NoteDocType>('notes', userId),
-            batchSize: BATCH_SIZE,
-        },
-        push: {
-            handler: createPushHandler('notes', userId) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-            batchSize: 10,
-        },
-        live: true,
-        retryTime: RETRY_TIME_MS,
-        autoStart: true,
-        waitForLeadership: false,
+    const current = generation;
+    if (!userId) return;
+    // A fresh identifier performs a full pull after upgrading the old timestamp protocol.
+    notesReplication = replicateRxCollection<NoteDocType, Checkpoint>({
+        collection: collections.notes, replicationIdentifier: `notes-sync-v2-${userId}`,
+        ...handlers<NoteDocType>('notes', userId), live: true, retryTime: 15000, waitForLeadership: false,
     });
-
-    // Error logging
-    notesReplication.error$.subscribe(err => {
-        console.error('[Replication] Notes error:', err.message || err);
+    tagsReplication = replicateRxCollection<TagDocType, Checkpoint>({
+        collection: collections.tags, replicationIdentifier: `tags-sync-v2-${userId}`,
+        ...handlers<TagDocType>('tags', userId), live: true, retryTime: 15000, waitForLeadership: false,
     });
-
-    // --- TAGS ---
-    tagsReplication = replicateRxCollection<TagDocType, ReplicationCheckpoint>({
-        collection: collections.tags,
-        replicationIdentifier: `tags-supabase-${userId}`,
-        pull: {
-            handler: createPullHandler<TagDocType>('tags', userId),
-            batchSize: BATCH_SIZE,
-        },
-        push: {
-            handler: createPushHandler('tags', userId) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-            batchSize: 10,
-        },
-        live: true,
-        retryTime: RETRY_TIME_MS,
-        autoStart: true,
-        waitForLeadership: false,
-    });
-
-    tagsReplication.error$.subscribe(err => {
-        console.error('[Replication] Tags error:', err.message || err);
-    });
-
-    // --- REALTIME SUBSCRIPTION ---
-    realtimeChannel = supabase.channel(`db-changes-${userId}`)
-        .on(
-            'postgres_changes',
-            {
-                event: '*',
-                schema: 'public',
-                table: 'notes',
-                filter: `user_id=eq.${userId}`,
-            },
-            (payload) => {
-                // Skip echo from our own push
-                if (isPushInProgress) {
-                    log('Notes Realtime event skipped (push in progress)');
-                    return;
-                }
-                log('Notes change:', payload.eventType);
-                notesReplication?.reSync();
-            }
-        )
-        .on(
-            'postgres_changes',
-            {
-                event: '*',
-                schema: 'public',
-                table: 'tags',
-                filter: `user_id=eq.${userId}`,
-            },
-            (payload) => {
-                if (isPushInProgress) {
-                    log('Tags Realtime event skipped (push in progress)');
-                    return;
-                }
-                log('Tags change:', payload.eventType);
-                tagsReplication?.reSync();
-            }
-        )
-        .subscribe((status) => {
-            log('Realtime status:', status);
-        });
-};
+    const resync = () => {
+        if (generation !== current) return;
+        notesReplication?.reSync(); tagsReplication?.reSync();
+    };
+    const visible = () => { if (document.visibilityState === 'visible') resync(); };
+    // Realtime is a hint. Catch-up on subscribe/reconnect/focus and periodic polling cover missed events.
+    realtimeChannel = supabase.channel(`sync-v2-${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` }, resync)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tags', filter: `user_id=eq.${userId}` }, resync)
+        .subscribe(status => { if (status === 'SUBSCRIBED') resync(); });
+    const timer = setInterval(visible, 60000);
+    window.addEventListener('online', resync);
+    document.addEventListener('visibilitychange', visible);
+    const subscriptions = [notesReplication.error$, tagsReplication.error$].map(errors => errors.subscribe(error => {
+        console.error('[Sync]', error.message);
+    }));
+    cleanup = () => {
+        clearInterval(timer);
+        window.removeEventListener('online', resync);
+        document.removeEventListener('visibilitychange', visible);
+        subscriptions.forEach(sub => sub.unsubscribe());
+    };
+}

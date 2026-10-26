@@ -57,6 +57,14 @@ public final class MainActivity extends FlutterActivity {
     private void handle(MethodCall call, MethodChannel.Result result) {
         try {
             switch (call.method) {
+                case "syncStatus": io(result, () -> SyncEngine.status(this)); break;
+                case "syncNow": SyncEngine.request(this); result.success(null); break;
+                case "signIn": network(result, () -> {
+                    SyncEngine.signIn(getApplicationContext(), call.argument("email"), call.argument("password"));
+                    runOnUiThread(() -> SyncRealtime.start(getApplicationContext()));
+                    return SyncEngine.status(this);
+                }); break;
+                case "signOut": network(result, () -> { SyncEngine.signOut(getApplicationContext()); return null; }); break;
                 case "listNotes": io(result, () -> NoteDatabase.get(this).list()); break;
                 case "saveNote": io(result, () -> {
                     Map<String, Object> note = NoteDatabase.get(this).save((Map<String, Object>) call.arguments);
@@ -128,6 +136,20 @@ public final class MainActivity extends FlutterActivity {
         }
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        SyncRealtime.start(getApplicationContext());
+    }
+    @Override protected void onPause() {
+        SyncRealtime.stop();
+        super.onPause();
+    }
+    private void network(MethodChannel.Result result, Work work) {
+        SyncEngine.NETWORK.execute(() -> {
+            try { Object value = work.run(); runOnUiThread(() -> result.success(value)); }
+            catch (Exception e) { runOnUiThread(() -> result.error("sync_error", e.getMessage(), null)); }
+        });
+    }
     private interface Work { Object run() throws Exception; }
     private void io(MethodChannel.Result result, Work work) {
         NoteDatabase.IO.execute(() -> {

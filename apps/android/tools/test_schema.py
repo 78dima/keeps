@@ -70,10 +70,10 @@ class PlatformContract(unittest.TestCase):
         cases = set(re.findall(r'case "([^"]+)":', native))
         self.assertFalse(methods - cases, methods - cases)
 
-    def test_manifest_components_exist_and_offline_release_has_no_internet(self):
+    def test_manifest_components_exist_and_sync_has_network_permission(self):
         manifest = ET.parse(ROOT / 'android/app/src/main/AndroidManifest.xml').getroot()
         permissions = {p.get(ANDROID + 'name') for p in manifest.findall('uses-permission')}
-        self.assertNotIn('android.permission.INTERNET', permissions)
+        self.assertIn('android.permission.INTERNET', permissions)
         self.assertIn('android.permission.RECEIVE_BOOT_COMPLETED', permissions)
         for node in manifest.findall('./application/activity') + manifest.findall('./application/receiver'):
             path = ROOT / 'android/app/src/main/java/com/monokeep/app' / (node.get(ANDROID + 'name').lstrip('.') + '.java')

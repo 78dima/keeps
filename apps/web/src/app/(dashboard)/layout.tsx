@@ -1,4 +1,5 @@
 'use client';
+import { supabase } from '@/lib/supabase';
 
 import { Sidebar, MobileSidebar } from '@/components/notes/sidebar';
 import { useRouter } from 'next/navigation';
@@ -73,6 +74,7 @@ export default function DashboardLayout({
 
 
     const handleLogout = () => {
+        void supabase.auth.signOut();
         localStorage.removeItem('token');
         router.push('/login');
     };

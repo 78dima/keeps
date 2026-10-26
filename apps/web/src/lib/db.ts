@@ -5,6 +5,8 @@ import {
     RxStorage,
     addRxPlugin
 } from 'rxdb';
+import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
+import { compareEdits, resolveEdit, ZERO_EDIT } from './sync-protocol';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
@@ -13,6 +15,7 @@ import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 
 // 1. Добавляем основные плагины (нужны всегда)
 addRxPlugin(RxDBUpdatePlugin);
+addRxPlugin(RxDBMigrationSchemaPlugin);
 addRxPlugin(RxDBQueryBuilderPlugin);
 
 // 2. DevMode включаем ТОЛЬКО если не продакшн.
@@ -27,7 +30,7 @@ const isClient = typeof window !== 'undefined';
 // --- СХЕМЫ ---
 
 const noteSchema = {
-    version: 0,
+    version: 1,
     primaryKey: 'id',
     type: 'object',
     properties: {
@@ -54,6 +57,7 @@ const noteSchema = {
         isReminderSent: { type: 'boolean' },
 
         updatedAt: { type: 'string' },
+        editId: { type: 'string', default: ZERO_EDIT },
         createdAt: { type: 'string' },
 
         // Changed to string to match Supabase UUID
@@ -74,7 +78,7 @@ const noteSchema = {
 };
 
 const tagSchema = {
-    version: 0,
+    version: 1,
     primaryKey: 'id',
     type: 'object',
     properties: {
@@ -82,6 +86,7 @@ const tagSchema = {
         name: { type: 'string' },
         userId: { type: 'string' }, // Changed to string
         updatedAt: { type: 'string' },
+        editId: { type: 'string', default: ZERO_EDIT },
         syncDeleted: { type: 'boolean' }
     },
     required: ['id', 'name', 'userId', 'updatedAt']
@@ -102,6 +107,7 @@ export type NoteDocType = {
     reminderDate?: string | null;
     isReminderSent: boolean;
     updatedAt: string;
+    editId?: string;
     createdAt?: string;
     userId: string; // Changed to string (UUID)
     tags: { id: string; name: string }[];
@@ -112,6 +118,7 @@ export type TagDocType = {
     name: string;
     userId: string; // Changed to string (UUID)
     updatedAt: string;
+    editId?: string;
     syncDeleted: boolean;
 };
 
@@ -147,8 +154,12 @@ const createDatabase = async (): Promise<MyDatabase> => {
     });
 
     await db.addCollections({
-        notes: { schema: noteSchema },
-        tags: { schema: tagSchema }
+        notes: { schema: noteSchema, migrationStrategies: { 1: (doc) => ({ ...doc, editId: doc.editId || ZERO_EDIT }) },
+            conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0 && a.isReminderSent === b.isReminderSent,
+                resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } },
+        tags: { schema: tagSchema, migrationStrategies: { 1: (doc) => ({ ...doc, editId: doc.editId || ZERO_EDIT }) },
+            conflictHandler: { isEqual: (a, b) => compareEdits(a, b) === 0,
+                resolve: async (input) => resolveEdit(input.newDocumentState, input.realMasterState) } }
     });
 
     return db;

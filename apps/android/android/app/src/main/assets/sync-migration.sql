@@ -1,0 +1,7 @@
+ALTER TABLE notes ADD COLUMN owner_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE notes ADD COLUMN edit_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+ALTER TABLE notes ADD COLUMN sync_deleted INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX notes_owner ON notes(owner_id, sync_deleted);
+CREATE TABLE sync_outbox (note_id TEXT PRIMARY KEY NOT NULL, owner_id TEXT NOT NULL, edit_id TEXT NOT NULL, payload TEXT NOT NULL);
+CREATE INDEX outbox_owner ON sync_outbox(owner_id);
+CREATE TABLE sync_state (owner_id TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL DEFAULT '0', last_sync INTEGER NOT NULL DEFAULT 0);

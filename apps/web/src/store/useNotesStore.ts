@@ -4,6 +4,7 @@ import { getDatabase, NoteDocType } from '@/lib/db';
 import { replicateCollections, cancelReplication } from '@/lib/replication';
 import { supabase } from '@/lib/supabase';
 import { Subscription } from 'rxjs';
+import { newEdit } from '@/lib/sync-protocol';
 
 interface KeepNoteImport {
     id?: string;
@@ -108,13 +109,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             }
 
             // Listen for auth changes
-            const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                setTimeout(() => { void (async () => {
                 const prevUserId = get().userId;
                 const newUserId = session?.user?.id ?? '';
 
                 if (newUserId && newUserId !== prevUserId) {
                     // New user logged in (or token refreshed with different user)
-                    set({ userId: newUserId });
+                    set({ userId: newUserId, notes: [], selectedNote: null, isEditModalOpen: false });
 
                     // Restart replication for new user
                     const db = await getDatabase();
@@ -133,6 +135,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
                         dbSubscription = null;
                     }
                 }
+                })().catch(error => console.error('[Auth sync]', error)); }, 0);
             });
             authSubscription = subscription;
 
@@ -257,7 +260,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             title: note.title || 'Untitled',
             content: note.content || '',
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            ...newEdit(),
             syncDeleted: false,
             isDeleted: false,
             isArchived: false,
@@ -273,7 +276,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         const db = await getDatabase();
         if (!note.id) return;
         const existing = await db.notes.findOne(note.id).exec();
-        if (existing) {
+        if (existing && existing.userId === get().userId) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const updateData: any = { ...note };
 
@@ -293,7 +296,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             });
 
             // 3. Explicitly handle specific fields logic
-            updateData.updatedAt = new Date().toISOString();
+            Object.assign(updateData, newEdit(existing.updatedAt));
 
             if (note.reminderDate !== undefined) {
                 updateData.reminderDate = note.reminderDate ? new Date(note.reminderDate).toISOString() : null;
@@ -324,11 +327,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     restoreNote: async (noteId) => {
         const db = await getDatabase();
         const note = await db.notes.findOne(noteId).exec();
-        if (note) {
+        if (note && note.userId === get().userId) {
             await note.patch({
                 isDeleted: false,
                 isArchived: false,
-                updatedAt: new Date().toISOString()
+                ...newEdit(note.updatedAt)
             });
         }
     },
@@ -336,10 +339,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     deleteNote: async (noteId) => {
         const db = await getDatabase();
         const note = await db.notes.findOne(noteId).exec();
-        if (note) {
+        if (note && note.userId === get().userId) {
             await note.patch({
                 isDeleted: true,
-                updatedAt: new Date().toISOString()
+                ...newEdit(note.updatedAt)
             });
         }
     },
@@ -347,10 +350,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     deleteNoteForever: async (noteId) => {
         const db = await getDatabase();
         const note = await db.notes.findOne(noteId).exec();
-        if (note) {
+        if (note && note.userId === get().userId) {
             await note.patch({
                 syncDeleted: true,
-                updatedAt: new Date().toISOString()
+                ...newEdit(note.updatedAt)
             });
         }
     },
@@ -370,7 +373,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             content: n.content || n.textContent || '',
             color: n.color || null,
             createdAt: n.createdTimestampUsec ? new Date(n.createdTimestampUsec / 1000).toISOString() : new Date().toISOString(),
-            updatedAt: n.userEditedTimestampUsec ? new Date(n.userEditedTimestampUsec / 1000).toISOString() : new Date().toISOString(),
+            ...newEdit(),
             syncDeleted: false,
             isDeleted: n.isTrashed || false,
             isArchived: n.isArchived || false,

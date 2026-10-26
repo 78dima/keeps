@@ -4,6 +4,8 @@ on:
     branches: ['codex/android-apk']
     paths:
       - 'apps/android/**'
+      - 'apps/web/**'
+      - 'supabase/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
     inputs:
@@ -15,6 +17,24 @@ on:
 permissions:
   contents: read
 jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=@monokeep/shared
+      - run: node --experimental-strip-types --test apps/web/tests/sync-protocol.test.mjs
+      - run: npx tsc --noEmit -p apps/web/tsconfig.json
+      - name: Web production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://lhjbeaaglpimzkfgrqdp.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'build-only-placeholder' }}
+        run: npm run build --workspace=@monokeep/web
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 40

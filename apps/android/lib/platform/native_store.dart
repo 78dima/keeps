@@ -4,6 +4,14 @@ import '../models/note.dart';
 class NativeStore {
   static const channel = MethodChannel('com.monokeep.app/native');
 
+  Future<Map<String, dynamic>> syncStatus() async =>
+    Map<String, dynamic>.from((await channel.invokeMapMethod<String, dynamic>('syncStatus'))!);
+  Future<void> syncNow() => channel.invokeMethod<void>('syncNow');
+  Future<void> signIn(String email, String password) async {
+    await channel.invokeMethod<dynamic>('signIn', {'email': email, 'password': password});
+  }
+  Future<void> signOut() => channel.invokeMethod<void>('signOut');
+
   Future<List<Note>> list() async {
     final rows = await channel.invokeListMethod<dynamic>('listNotes') ?? [];
     return rows.map((row) => Note.fromMap(row as Map)).toList();

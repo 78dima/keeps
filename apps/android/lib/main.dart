@@ -11,6 +11,7 @@ import 'ui/native_dialogs.dart';
 import 'ui/note_card.dart';
 import 'ui/note_editor.dart';
 import 'ui/style.dart';
+import 'ui/sync_dialog.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -159,6 +160,11 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     catch (e) { _toast('Could not export notes: $e'); }
     finally { if (mounted) setState(() => _exporting = false); }
   }
+  Future<void> _sync() async {
+    _closeDrawer();
+    await showDialog<void>(context: context, barrierDismissible: false, builder: (_) => SyncDialog(store: widget.store));
+    await _reload();
+  }
   Future<void> _settings() async {
     _closeDrawer();
     await showDialog<void>(context: context, builder: (_) => NotificationSettings(store: widget.store));
@@ -202,6 +208,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         child: Column(children: [
           link('Import from Keep', KeepGlyph.upload, _import),
           link(_exporting ? 'Exporting...' : 'Export backup', KeepGlyph.download, _export),
+          link('Синхронизация и аккаунт', KeepGlyph.checks, _sync),
           link('Уведомления Android', KeepGlyph.bell, _settings),
         ])),
     ]));
