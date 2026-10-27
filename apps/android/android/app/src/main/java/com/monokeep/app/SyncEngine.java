@@ -87,7 +87,9 @@ public final class SyncEngine {
             NoteDatabase.IO.submit(() -> {
                 try {
                     for (Map<String,Object> note : NoteDatabase.get(c).list()) ReminderScheduler.cancel(c,(String)note.get("id"));
+                    NoteDatabase.get(c).disarmReminders();
                     SyncSession.save(c,session);
+                    NoteDatabase.get(c).disarmReminders();
                     NoteDatabase.get(c).adoptGuestNotes(SyncSession.owner(c));
                     ReminderScheduler.rescheduleAll(c);
                 } catch (Exception e) { throw new RuntimeException(e); }
@@ -101,6 +103,7 @@ public final class SyncEngine {
             // Local logout always works offline. Pending edits remain tied to their owner.
             NoteDatabase.IO.submit(() -> {
                 for (Map<String,Object> note : NoteDatabase.get(c).list()) ReminderScheduler.cancel(c,(String)note.get("id"));
+                NoteDatabase.get(c).disarmReminders();
                 SyncSession.clear(c); error = "";
             }).get();
         }

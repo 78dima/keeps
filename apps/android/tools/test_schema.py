@@ -21,6 +21,7 @@ class StorageContract(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.executescript((SCHEMA.parent / 'sync-migration.sql').read_text())
         self.db.executescript((SCHEMA.parent / 'reminder-migration.sql').read_text())
+        self.db.executescript((SCHEMA.parent / 'reminder-arming-migration.sql').read_text())
 
     def tearDown(self):
         self.db.close()
@@ -34,7 +35,7 @@ class StorageContract(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT title,content,tags,reminder_at,is_deleted FROM notes').fetchone(), ('', '', '[]', None, 0))
 
     def test_boolean_constraints_reject_invalid_flags(self):
-        for flag in ('is_deleted', 'is_archived', 'is_pinned', 'reminder_sent'):
+        for flag in ('is_deleted', 'is_archived', 'is_pinned', 'reminder_sent', 'reminder_armed'):
             with self.assertRaises(sqlite3.IntegrityError):
                 self.insert(flag, **{flag: 2})
 

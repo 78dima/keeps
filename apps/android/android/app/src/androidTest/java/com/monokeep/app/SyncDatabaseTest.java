@@ -117,12 +117,12 @@ public class SyncDatabaseTest {
         context.getSharedPreferences("sync-session",0).edit().putString("owner",UUID.randomUUID().toString()).commit();
         assertTrue(db.list().isEmpty()); assertEquals(1,db.pendingCount(OWNER));
     }
-    @Test public void webDeliveryDoesNotSuppressDeviceReminderAndDoesNotRearmDeliveredReminder() throws Exception {
+    @Test public void downloadedWebDeliveryIsRespectedAndNeverRearmsDeliveredReminder() throws Exception {
         Map<String,Object> local=db.save(row("title","reminder","reminderDate",1000L));
         String id=(String)local.get("id");
         JSONObject remote=db.pending(OWNER).getJSONObject(0).put("is_reminder_sent",true);
         db.accept(OWNER,new JSONArray().put(remote),"1");
-        assertEquals(false,db.find(id).get("isReminderSent"));
+        assertEquals(true,db.find(id).get("isReminderSent"));
         db.markReminderSent(id,1000L);
         db.accept(OWNER,new JSONArray().put(remote),"2");
         assertEquals(true,db.find(id).get("isReminderSent"));
