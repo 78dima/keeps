@@ -20,7 +20,7 @@
 
 - Веб: `https://monokeep.cloudpub.ru`, VPS `217.60.37.161`, каталог `/var/www/notes`, Compose `/var/www/notes/docker-compose.yml`, контейнер `monokeep-web`, порт 3000.
 - Supabase KeepNotes: `lhjbeaaglpimzkfgrqdp`: версия заметок, RPC синхронизации, очередь FCM, обновлённый `send-reminders`, новый `sync-dispatch`.
-- Android: постоянный release APK 1.1.0+6; локальная SQLite v3, существующий аккаунт Supabase, Realtime, WorkManager и Firebase Messaging.
+- Android: постоянный release APK 1.1.1+7 с исправленным разбором дат Supabase; локальная SQLite v3, существующий аккаунт Supabase, Realtime, WorkManager и Firebase Messaging.
 - Firebase `monokeep-78dima-sync` уже создан и настроен. Billing выключен. Привилегированный FCM-ключ подготовлен локально, пока не установлен на сервер.
 
 Точная версия действующего сайта при проверке: `06183ddc9d23456f8249fc89cc40c9655f734e73`; изменения этой версии включены в проверочную ветку `codex/android-apk`. Текущий образ `notes-web`: `sha256:b030c3c6504a6494ab0148381819bbab7cc06fc6bd35c748994021f61dcdfebb`. Рабочее дерево сервера было чистым. Повторно проверить эти значения непосредственно перед обновлением.
