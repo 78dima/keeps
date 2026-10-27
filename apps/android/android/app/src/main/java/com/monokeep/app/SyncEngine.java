@@ -59,10 +59,13 @@ public final class SyncEngine {
             if (date != null) try {
                 SyncClock.sample(c, java.time.ZonedDateTime.parse(date, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toString(), wall, elapsed);
             } catch (Exception ignored) { /* RPC clock below is more precise. */ }
-            JSONObject result = new JSONObject(text);
-            if (result.has("server_time")) SyncClock.sample(c, result.getString("server_time"), wall, elapsed);
-            return result;
+            return decodeResponse(c, text, wall, elapsed);
         }
+    }
+    static JSONObject decodeResponse(Context c, String text, long wall, long elapsed) throws Exception {
+        JSONObject result = new JSONObject(text);
+        if (result.has("server_time")) SyncClock.sample(c, result.getString("server_time"), wall, elapsed);
+        return result;
     }
     static String accessToken(Context c) throws Exception {
         synchronized (LOCK) {

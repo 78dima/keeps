@@ -2,7 +2,6 @@ package com.monokeep.app;
 
 import android.content.Context;
 import android.os.SystemClock;
-import java.time.Instant;
 
 final class SyncClock {
     private static long anchorServer, anchorElapsed;
@@ -15,7 +14,7 @@ final class SyncClock {
     static synchronized void sample(Context c, String server, long startWall, long startElapsed) {
         long elapsed = SystemClock.elapsedRealtime(), duration = elapsed - startElapsed;
         if (duration > 10000) return;
-        long serverMs = Instant.parse(server).toEpochMilli();
+        long serverMs = SyncTimestamp.millis(server);
         anchorServer = serverMs + duration / 2; anchorElapsed = elapsed;
         c.getSharedPreferences("sync-clock", 0).edit().putLong("offset", serverMs - startWall - duration / 2).apply();
     }

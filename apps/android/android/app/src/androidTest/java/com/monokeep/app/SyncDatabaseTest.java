@@ -26,11 +26,60 @@ public class SyncDatabaseTest {
     @After public void cleanup() {
         db.close(); context.deleteDatabase("test-sync.db");
         context.getSharedPreferences("sync-session",0).edit().clear().commit();
+        // Tests with a fixed server clock must not influence the rest of the suite.
+        SyncClock.sample(context,Instant.now().toString(),System.currentTimeMillis(),android.os.SystemClock.elapsedRealtime());
     }
     private Map<String,Object> row(Object... pairs) {
         Map<String,Object> row=new HashMap<>();
         for(int i=0;i<pairs.length;i+=2) row.put((String)pairs[i],pairs[i+1]);
         return row;
+    }
+    @Test public void postgresResponseDecodesClockDownloadsNotesAndPersistsCheckpoint() throws Exception {
+        String text;
+        try (java.io.InputStream in = InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("sync-response.json")) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = in.read(buffer)) != -1) out.write(buffer,0,count);
+            text = out.toString("UTF-8");
+        }
+        JSONObject response = SyncEngine.decodeResponse(context,text,System.currentTimeMillis(),android.os.SystemClock.elapsedRealtime());
+        long serverTime = Instant.parse("2026-10-27T17:02:24.495Z").toEpochMilli();
+        assertTrue(Math.abs(SyncClock.now(context,0)-serverTime)<2000);
+        JSONArray rows = response.getJSONArray("rows");
+        JSONObject remote = rows.getJSONObject(0);
+        String id = remote.getString("id");
+        assertTrue(db.list().isEmpty());
+        db.accept(OWNER,rows,remote.getString("sync_revision"));
+        Map<String,Object> note = db.find(id);
+        assertEquals("Web note fixture",note.get("title"));
+        assertEquals(serverTime,note.get("updatedAt"));
+        assertEquals(Instant.parse("2026-10-27T10:02:24Z").toEpochMilli(),note.get("createdAt"));
+        assertEquals(Instant.parse("2026-10-27T17:01:24.123Z").toEpochMilli(),note.get("sortAt"));
+        assertEquals(Instant.parse("2026-10-28T01:02:24.456Z").toEpochMilli(),note.get("reminderDate"));
+        assertEquals(java.util.Collections.singletonList("web"),note.get("tags"));
+        assertEquals(0,db.pendingCount(OWNER));
+        db.close(); db = new NoteDatabase(context,"test-sync.db");
+        assertEquals("907",db.checkpoint(OWNER));
+        assertEquals("Web note fixture",db.find(id).get("title"));
+    }
+
+    @Test public void postgresUploadAcknowledgementClearsOutboxWithoutOverwritingNewerEdit() throws Exception {
+        Map<String,Object> local = db.save(row("title","offline phone note"));
+        JSONObject sent = db.pending(OWNER).getJSONObject(0);
+        // Postgres re-serializes Android's Z timestamps using numeric UTC offsets.
+        for (String field : new String[]{"created_at","updated_at","sort_at"})
+            sent.put(field,sent.getString(field).replace("Z","+00:00"));
+        String body = new JSONObject().put("rows",new JSONArray().put(sent))
+            .put("server_time",Instant.now().toString().replace("Z","+00:00")).toString();
+        JSONObject response = SyncEngine.decodeResponse(context,body,System.currentTimeMillis(),android.os.SystemClock.elapsedRealtime());
+        db.accept(OWNER,response.getJSONArray("rows"),null);
+        assertEquals(0,db.pendingCount(OWNER));
+        String id = (String)local.get("id");
+        assertEquals(local.get("updatedAt"),db.find(id).get("updatedAt"));
+        db.save(row("id",id,"title","newer edit during retry"));
+        db.accept(OWNER,response.getJSONArray("rows"),null);
+        assertEquals(1,db.pendingCount(OWNER));
+        assertEquals("newer edit during retry",db.find(id).get("title"));
     }
     @Test public void editDuringUploadSurvivesOlderAcknowledgementAndProcessRestart() throws Exception {
         Map<String,Object> original=db.save(row("title","first"));

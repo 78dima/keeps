@@ -363,13 +363,13 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         Map<String, Object> row = new HashMap<>();
         String[][] fields = {{"id","id"},{"ownerId","user_id"},{"editId","edit_id"},{"title","title"},{"content","content"},{"color","color"}};
         for (String[] f : fields) row.put(f[0], source.isNull(f[1]) ? null : source.getString(f[1]));
-        row.put("createdAt", Instant.parse(source.getString("created_at")).toEpochMilli());
-        row.put("updatedAt", Instant.parse(source.getString("updated_at")).toEpochMilli());
-        row.put("reminderDate", source.isNull("reminder_date") ? null : Instant.parse(source.getString("reminder_date")).toEpochMilli());
+        row.put("createdAt", SyncTimestamp.millis(source.getString("created_at")));
+        row.put("updatedAt", SyncTimestamp.millis(source.getString("updated_at")));
+        row.put("reminderDate", source.isNull("reminder_date") ? null : SyncTimestamp.millis(source.getString("reminder_date")));
         row.put("isPinned", source.optBoolean("is_pinned")); row.put("isArchived", source.optBoolean("is_archived"));
         row.put("isDeleted", source.optBoolean("is_deleted")); row.put("syncDeleted", source.optBoolean("sync_deleted"));
         row.put("isReminderSent", false);
-        row.put("sortAt", source.isNull("sort_at") ? row.get("updatedAt") : Instant.parse(source.getString("sort_at")).toEpochMilli());
+        row.put("sortAt", source.isNull("sort_at") ? row.get("updatedAt") : SyncTimestamp.millis(source.getString("sort_at")));
         row.put("reminderEnabled", source.optBoolean("reminder_enabled", true));
         row.put("reminderVersion", source.optString("reminder_version", "00000000-0000-0000-0000-000000000000"));
         List<String> tags = new ArrayList<>(); JSONArray array = source.optJSONArray("tags");

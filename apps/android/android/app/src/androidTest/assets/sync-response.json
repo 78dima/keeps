@@ -1,0 +1,27 @@
+{
+  "rows": [
+    {
+      "id": "91219b1c-cd19-490a-ab00-000000000077",
+      "user_id": "81219b1c-cd19-490a-ab00-000000000001",
+      "edit_id": "61219b1c-cd19-490a-ab00-000000000077",
+      "title": "Web note fixture",
+      "content": "Synthetic data, no production note content",
+      "color": null,
+      "tags": [{"id": "71219b1c-cd19-490a-ab00-000000000077", "name": "web"}],
+      "created_at": "2026-10-27T10:02:24+00:00",
+      "updated_at": "2026-10-27T17:02:24.495809+00:00",
+      "sort_at": "2026-10-27T17:01:24.123+00:00",
+      "reminder_date": "2026-10-28T09:02:24.456789+08:00",
+      "reminder_enabled": true,
+      "reminder_version": "61219b1c-cd19-490a-ab00-000000000077",
+      "is_reminder_sent": false,
+      "was_sent_once": false,
+      "is_pinned": false,
+      "is_archived": false,
+      "is_deleted": false,
+      "sync_deleted": false,
+      "sync_revision": "907"
+    }
+  ],
+  "server_time": "2026-10-27T17:02:24.495809+00:00"
+}
