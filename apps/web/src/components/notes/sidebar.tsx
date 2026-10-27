@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useNotesStore } from '@/store/useNotesStore';
 import { ImportNotesDialog } from './import-notes-dialog';
 import { getDatabase } from '@/lib/db';
+import { AndroidDownload } from '@/components/android-download';
 
 const links = [
     { name: 'Notes', href: '/', icon: Lightbulb },
@@ -56,6 +57,7 @@ function SidebarContent({ className, onItemClick }: { className?: string, onItem
                 </div>
             </div>
             <div className="p-4 border-t border-black/5 space-y-2 bg-white/50 shrink-0">
+                <AndroidDownload />
                 <ImportNotesDialog />
                 <MigrationBackup />
                 <TelegramLinkDialog />

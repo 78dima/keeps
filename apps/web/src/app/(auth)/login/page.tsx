@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/form';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
+import { AndroidDownload } from '@/components/android-download';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -120,6 +121,9 @@ export default function LoginPage() {
                 <Link href="/register" className="font-medium text-violet-400 transition-colors hover:text-violet-300 hover:underline">
                     Register
                 </Link>
+            </div>
+            <div className="mt-6 border-t border-white/10 pt-6">
+                <AndroidDownload dark />
             </div>
         </div>
     );
