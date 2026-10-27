@@ -18,7 +18,7 @@ def tree():
     return ET.fromstring(adb("shell", "cat", "/data/local/tmp/monokeep-release-ui.xml"))
 
 
-def find(label, *, contains=False, scroll_to_top=False):
+def find(label, *, contains=False):
     for _ in range(5):
         matches = []
         for node in tree().iter("node"):
@@ -29,23 +29,33 @@ def find(label, *, contains=False, scroll_to_top=False):
                     matches.append(bounds)
         if matches:
             return min(matches, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
-        if scroll_to_top:
-            # On the small CI display the autofocus/IME scrolls Title above the
-            # viewport. Bring it back with a gesture inside the form, above IME.
-            dimensions = re.findall(rb"(\d+)x(\d+)", adb("shell", "wm", "size"))[-1]
-            width, height = map(int, dimensions)
-            adb("shell", "input", "swipe", str(width // 2), str(height // 5),
-                str(width // 2), str(height * 9 // 20), "400")
         time.sleep(1)
     screenshot("ui-failure")
     print(ET.tostring(tree(), encoding="unicode"))
     raise AssertionError(f"Android accessibility node not found: {label}")
 
 
-def tap(label, *, contains=False, scroll_to_top=False):
-    x1, y1, x2, y2 = find(label, contains=contains, scroll_to_top=scroll_to_top)
+def tap_bounds(bounds):
+    x1, y1, x2, y2 = bounds
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(1)
+
+
+def tap(label, *, contains=False):
+    tap_bounds(find(label, contains=contains))
+
+
+def form_fields():
+    # Flutter sends hints through AccessibilityNodeInfo.hintText, which the
+    # Android uiautomator XML dumper omits. The form has Title/body/tag fields;
+    # the search field is outside this ScrollView. Do not search hint labels.
+    for node in tree().iter("node"):
+        if node.get("class") == "android.widget.ScrollView":
+            fields = [child for child in node.iter("node") if child.get("class") == "android.widget.EditText"]
+            if len(fields) >= 2:
+                return fields
+    screenshot("ui-failure")
+    raise AssertionError("Expanded form fields are missing")
 
 
 def screenshot(name):
@@ -54,13 +64,16 @@ def screenshot(name):
 
 tap("Take a note...", contains=True)
 screenshot("expanded-keyboard")
-tap("Title", contains=True, scroll_to_top=True)
+fields = form_fields()
+assert fields[1].get("focused") == "true", "Body must initially have keyboard focus"
+assert fields[0].get("text") == "" and fields[1].get("text") == "", "Draft must be empty"
+tap_bounds(list(map(int, re.findall(r"\d+", fields[0].get("bounds", "")))))
 # A Title tap with an empty body must leave the draft open.
-find("Title", contains=True)
+assert form_fields()[0].get("focused") == "true", "Title must receive focus without closing"
 screenshot("title-keyboard")
 adb("shell", "input", "keyevent", "KEYCODE_BACK")
 time.sleep(1)
-find("REMINDER")
+find("Select color #f28b82", contains=True)
 find("Create")
 screenshot("create")
 tap("Set date & time")
