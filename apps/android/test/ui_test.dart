@@ -36,7 +36,9 @@ void main() {
     expect(find.text('No notes found'), findsOneWidget);
     await tester.tap(find.text('Take a note...')); await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('create-title')), 'Shopping');
+    await tester.pump();
     await tester.enterText(find.byKey(const Key('create-content')), 'Milk');
+    await tester.pump();
     await tester.tap(find.text('Create')); await tester.pumpAndSettle();
     expect(store.rows.single.content, 'Milk');
     expect(find.byType(NoteCard), findsOneWidget);
@@ -67,6 +69,7 @@ void main() {
     await tester.pumpWidget(MonoKeepApp(store: store)); await tester.pumpAndSettle();
     await tester.tap(find.text('Take a note...')); await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('create-content')), 'Do not lose me');
+    await tester.pump();
     await tester.tap(find.text('Create')); await tester.pumpAndSettle();
     expect(find.textContaining('Could not create note'), findsOneWidget);
     expect(find.text('Do not lose me'), findsOneWidget);

@@ -35,6 +35,33 @@ public class NoteDatabaseTest {
         assertEquals("One\nTwo", loaded.get("content"));
         assertEquals(Arrays.asList("a"), loaded.get("tags"));
     }
+    @Test public void creationRetryAfterReopenKeepsOneRowAndDoesNotOverwriteNewerEdits() {
+        String key = java.util.UUID.randomUUID().toString();
+        Map<String,Object> request = row("creationId",key,"title","original","color","#f28b82","reminderDate",2000000000000L);
+        Map<String,Object> first = db.save(request);
+        assertEquals(key,first.get("id"));
+        db.close(); db = new NoteDatabase(context,"test-notes.db");
+        Map<String,Object> retry = db.save(request);
+        assertEquals(first.get("editId"),retry.get("editId"));
+        assertEquals(first.get("updatedAt"),retry.get("updatedAt"));
+        assertEquals(1,db.list().size());
+        db.save(row("id",key,"title","newer edit"));
+        assertEquals("newer edit",db.save(request).get("title"));
+        db.save(row("id",key,"isDeleted",true)); db.deleteForever(key);
+        assertEquals(true,db.save(request).get("syncDeleted"));
+        assertNull(db.find(key));
+    }
+    @Test public void creationKeyCannotReadAnotherAccountOrCreateAnEmptyNote() {
+        String key = java.util.UUID.randomUUID().toString();
+        db.save(row("creationId",key,"title","private"));
+        db.getWritableDatabase().execSQL("UPDATE notes SET owner_id = 'another-owner' WHERE id = ?",new Object[]{key});
+        try { db.save(row("creationId",key,"title","overwrite")); fail("Must reject another owner"); }
+        catch (SecurityException expected) { /* No cross-account acknowledgement. */ }
+        try { db.save(row("creationId",java.util.UUID.randomUUID().toString(),"title","  ","content","\n")); fail("Must reject empty creation"); }
+        catch (IllegalArgumentException expected) { /* No blank notes. */ }
+        try { db.save(row("id",java.util.UUID.randomUUID().toString(),"title","stale")); fail("Must not turn a missing update into a creation"); }
+        catch (IllegalArgumentException expected) { /* Existing update contract is retained. */ }
+    }
     @Test public void editorSaveDoesNotUndoNotificationDeliveredInBackground() {
         long time = 1000L;
         String id = (String) db.save(row("title", "Reminder", "reminderDate", time)).get("id");

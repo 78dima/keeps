@@ -68,6 +68,7 @@ public final class MainActivity extends FlutterActivity {
                 case "listNotes": io(result, () -> NoteDatabase.get(this).list()); break;
                 case "saveNote": io(result, () -> {
                     Map<String, Object> note = NoteDatabase.get(this).save((Map<String, Object>) call.arguments);
+                    if (Boolean.TRUE.equals(note.get("syncDeleted"))) return note;
                     ReminderScheduler.reconcile(this, note);
                     return NoteDatabase.get(this).find((String) note.get("id"));
                 }); break;

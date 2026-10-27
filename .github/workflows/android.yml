@@ -151,7 +151,7 @@ jobs:
           name: release-launch-check
           path: |
             apps/android/dist/release-crash.log
-            apps/android/dist/release-home.png
+            apps/android/dist/release-*.png
   release-check:
     if: ${{ inputs.release_artifact_run != '' }}
     runs-on: ubuntu-latest
@@ -203,4 +203,4 @@ jobs:
           name: release-launch-check
           path: |
             apps/android/dist/release-crash.log
-            apps/android/dist/release-home.png
+            apps/android/dist/release-*.png

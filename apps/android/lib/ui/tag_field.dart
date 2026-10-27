@@ -3,12 +3,13 @@ import 'package:flutter/services.dart';
 import 'keep_icon.dart';
 
 class TagField extends StatefulWidget {
-  const TagField({super.key, required this.tags, required this.onChanged, this.enabled = true, this.controller, this.placeholder = '+ Add tag'});
+  const TagField({super.key, required this.tags, required this.onChanged, this.enabled = true, this.controller, this.placeholder = '+ Add tag', this.groupId = EditableText});
   final List<String> tags;
   final ValueChanged<List<String>> onChanged;
   final bool enabled;
   final TextEditingController? controller;
   final String placeholder;
+  final Object groupId;
   @override
   State<TagField> createState() => _TagFieldState();
 }
@@ -45,7 +46,7 @@ class _TagFieldState extends State<TagField> {
       }
       return KeyEventResult.ignored;
     }, child: TextField(
-      controller: _controller, focusNode: _focus, enabled: widget.enabled,
+      controller: _controller, focusNode: _focus, enabled: widget.enabled, groupId: widget.groupId,
       style: const TextStyle(fontSize: 14), textInputAction: TextInputAction.done,
       decoration: InputDecoration(hintText: widget.tags.isEmpty ? widget.placeholder : '', isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8)),
       onSubmitted: (_) { _add(); _focus.requestFocus(); },

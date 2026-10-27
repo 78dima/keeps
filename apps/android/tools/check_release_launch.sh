@@ -12,6 +12,7 @@ adb logcat -b crash -c
 adb shell am start -W -n com.monokeep.app/.MainActivity
 sleep 10
 adb shell pidof com.monokeep.app
+adb exec-out screencap -p > "$MONOKEEP_ROOT/dist/release-home.png"
+python3 "$MONOKEEP_ROOT/tools/check_release_form.py"
 adb logcat -d -b crash > "$MONOKEEP_ROOT/dist/release-crash.log"
 test ! -s "$MONOKEEP_ROOT/dist/release-crash.log"
-adb exec-out screencap -p > "$MONOKEEP_ROOT/dist/release-home.png"

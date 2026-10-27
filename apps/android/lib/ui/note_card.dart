@@ -21,7 +21,7 @@ class NoteCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(padding: const EdgeInsets.only(right: 64), child: Text(note.title,
-              style: heading.copyWith(fontSize: 18, height: 1.2), maxLines: 4, overflow: TextOverflow.ellipsis)),
+              style: heading.copyWith(fontSize: 18, height: 1.2))),
             if (note.content.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(note.content, maxLines: 10, overflow: TextOverflow.ellipsis,

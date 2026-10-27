@@ -105,9 +105,25 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     }
 
     public Map<String, Object> save(Map<String, Object> patch) {
-        String id = patch.get("id") instanceof String ? (String) patch.get("id") : UUID.randomUUID().toString();
+        String creationId = patch.get("creationId") instanceof String ? UUID.fromString((String) patch.get("creationId")).toString() : null;
+        if (creationId != null && patch.containsKey("id")) throw new IllegalArgumentException("Create and update must be separate requests");
+        String id = patch.get("id") instanceof String ? (String) patch.get("id") : creationId != null ? creationId : UUID.randomUUID().toString();
+        if (creationId != null) {
+            // The first commit may have succeeded before its reply was lost. A retry
+            // acknowledges that same row without overwriting newer edits or tombstones.
+            try (Cursor cursor = getReadableDatabase().query("notes", null, "id = ?", new String[]{id}, null, null, null)) {
+                if (cursor.moveToFirst()) {
+                    Map<String, Object> committed = read(cursor);
+                    if (!SyncSession.owner(context).equals(committed.get("ownerId"))) throw new SecurityException("Note belongs to another account");
+                    return committed;
+                }
+            }
+        }
         Map<String, Object> existing = find(id);
         if (patch.containsKey("id") && existing == null) throw new IllegalArgumentException("This note no longer exists");
+        if (existing == null && Objects.toString(patch.get("title"), "").trim().isEmpty()
+                && Objects.toString(patch.get("content"), "").trim().isEmpty())
+            throw new IllegalArgumentException("Add a title or a note");
         long now = SyncClock.now(context, existing == null ? 0 : number(existing.get("updatedAt"), 0));
         Map<String, Object> row = existing == null ? new HashMap<>() : new HashMap<>(existing);
         row.putAll(patch);
