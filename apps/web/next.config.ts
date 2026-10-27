@@ -5,19 +5,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   transpilePackages: ["@monokeep/ui"],
-  async redirects() {
-    return [{
-      source: "/download/android",
-      destination: `/downloads/${androidRelease.fileName}`,
-      permanent: false,
-    }];
-  },
   async headers() {
     return [
-      {
-        source: "/download/android",
-        headers: [{ key: "Cache-Control", value: "no-store" }],
-      },
       {
         source: `/downloads/${androidRelease.fileName}`,
         headers: [
