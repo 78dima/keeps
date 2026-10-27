@@ -18,7 +18,7 @@ def tree():
     return ET.fromstring(adb("shell", "cat", "/data/local/tmp/monokeep-release-ui.xml"))
 
 
-def find(label, *, contains=False):
+def find(label, *, contains=False, scroll_to_top=False):
     for _ in range(5):
         matches = []
         for node in tree().iter("node"):
@@ -29,12 +29,21 @@ def find(label, *, contains=False):
                     matches.append(bounds)
         if matches:
             return min(matches, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+        if scroll_to_top:
+            # On the small CI display the autofocus/IME scrolls Title above the
+            # viewport. Bring it back with a gesture inside the form, above IME.
+            dimensions = re.findall(rb"(\d+)x(\d+)", adb("shell", "wm", "size"))[-1]
+            width, height = map(int, dimensions)
+            adb("shell", "input", "swipe", str(width // 2), str(height // 5),
+                str(width // 2), str(height * 9 // 20), "400")
         time.sleep(1)
+    screenshot("ui-failure")
+    print(ET.tostring(tree(), encoding="unicode"))
     raise AssertionError(f"Android accessibility node not found: {label}")
 
 
-def tap(label, *, contains=False):
-    x1, y1, x2, y2 = find(label, contains=contains)
+def tap(label, *, contains=False, scroll_to_top=False):
+    x1, y1, x2, y2 = find(label, contains=contains, scroll_to_top=scroll_to_top)
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
     time.sleep(1)
 
@@ -44,7 +53,8 @@ def screenshot(name):
 
 
 tap("Take a note...", contains=True)
-tap("Title", contains=True)
+screenshot("expanded-keyboard")
+tap("Title", contains=True, scroll_to_top=True)
 # A Title tap with an empty body must leave the draft open.
 find("Title", contains=True)
 screenshot("title-keyboard")
