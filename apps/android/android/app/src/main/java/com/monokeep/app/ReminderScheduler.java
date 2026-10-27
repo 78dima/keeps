@@ -67,21 +67,25 @@ public final class ReminderScheduler {
     static void reconcile(Context context, NoteDatabase db, Map<String, Object> note) {
         String id = (String) note.get("id");
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
-        alarms.cancel(alarmIntent(context, id));
         if (Boolean.TRUE.equals(note.get("isDeleted")) || Boolean.TRUE.equals(note.get("syncDeleted")) || Boolean.FALSE.equals(note.get("reminderEnabled")) || note.get("reminderDate") == null) {
             db.disarmReminder(id);
-            notifications(context).cancel(id, 0);
+            cancel(context, id);
             return;
         }
-        if (Boolean.TRUE.equals(note.get("isReminderSent"))) return;
-        notifications(context).cancel(id, 0);
+        if (Boolean.TRUE.equals(note.get("isReminderSent"))) {
+            alarms.cancel(alarmIntent(context, id));
+            return;
+        }
         long when = ((Number) note.get("reminderDate")).longValue();
         if (when <= System.currentTimeMillis()) {
-            // A sync/open/import is not an alarm event. Only a reminder actually
-            // armed on this device before its deadline may be delivered late.
-            if (Boolean.TRUE.equals(note.get("reminderArmed"))) deliver(context, db, id);
+            // Sync/open/boot/import never emits overdue notifications. Leave a
+            // previously armed system alarm alone: its receiver may be delayed
+            // by Android and must not be canceled by a concurrent sync.
+            if (!Boolean.TRUE.equals(note.get("reminderArmed"))) cancel(context, id);
             return;
         }
+        alarms.cancel(alarmIntent(context, id));
+        notifications(context).cancel(id, 0);
         if (!db.armReminder(note)) return;
         PendingIntent pending = alarmIntent(context, id);
         try {

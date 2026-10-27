@@ -95,6 +95,9 @@ public class ReminderSyncTest {
         expire(r);
         r.put("is_reminder_sent",true); accept(r);
         assertEquals(false,note(r).get("isReminderSent"));
+        reconcileAll();
+        assertFalse("Sync/open itself must not deliver an overdue reminder",notified(id));
+        assertEquals(true,note(r).get("reminderArmed"));
         ReminderScheduler.deliver(context,db,id); waitForNotification(id);
         assertEquals(true,note(r).get("isReminderSent")); assertEquals(false,note(r).get("reminderArmed"));
         Object sort=note(r).get("sortAt"), edit=note(r).get("editId");
