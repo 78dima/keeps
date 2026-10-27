@@ -84,9 +84,11 @@ public final class ReminderScheduler {
             if (!Boolean.TRUE.equals(note.get("reminderArmed"))) cancel(context, id);
             return;
         }
+        // The deadline can pass between the time check and the SQL update.
+        // Validate first so that a failed re-arm cannot cancel a due alarm.
+        if (!db.armReminder(note)) return;
         alarms.cancel(alarmIntent(context, id));
         notifications(context).cancel(id, 0);
-        if (!db.armReminder(note)) return;
         PendingIntent pending = alarmIntent(context, id);
         try {
             try {
