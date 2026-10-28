@@ -6,25 +6,26 @@ the current versioned file. Versioned APKs support resumable downloads and are
 served as attachments with the Android package MIME type.
 
 `src/lib/android-release.json` records the verified APK version, size, SHA-256 and
-GitHub Actions source run. The current release is **1.1.4+10**, run **40659214834**.
+GitHub Actions source run. The current release is **1.1.5+11**, run **40668131175**.
 Use that exact APK; do not rebuild it under the same download filename.
 
 ## Deployed version
 
-Deployed on 2026-10-28 at 17:01 Asia/Taipei (2026-10-28 09:01 UTC):
+Deployed on 2026-10-28 at 18:13 Asia/Taipei (2026-10-28 10:13 UTC):
 
-- Web revision `8f2f4e66a6570802c28720702d0276773884a727`, image
-  `monokeep-web:8f2f4e66`, successful web job in Actions run `40660227377`.
-- Bundle SHA-256: `749d9fcc974fbcd50e97a33e20a38c891859ae2a73d42788f461001ef364e4be`.
+- Web revision `3d3c13c5b6109bf52b7493bfc0396b318526654e`, image
+  `monokeep-web:3d3c13c5`, successful web job in Actions run `40669683402`.
+- Bundle SHA-256: `c64e7f6001980b1eddcc901732517671ba4902620e75610fa1584853fc1af662`.
 - Persistent public files: `/var/www/monokeep-downloads`, mounted read-only at
-  `/app/apps/web/public/downloads` in the permanent Compose override.
+  `/app/apps/web/public/downloads` in the permanent Compose override. Earlier
+  APKs (1.1.3+9, 1.1.4+10) are retained there.
 - Verified backup of the previous image, source, release and Compose settings:
-  `/var/backups/monokeep/20261028T084656Z`. Previous image: `monokeep-web:57535ae6`.
-- The existing environment and other services were compared before switching;
-  the existing download mount was retained. Only the release download metadata changed.
+  `/var/backups/monokeep/20261028T100930Z`. Previous image: `monokeep-web:8f2f4e66`,
+  also tagged `monokeep-web:rollback-20261028T100930Z`.
+- The resolved Compose configuration changed only the web service's image, build
+  context and revision label; environment and download mount were retained.
 - Preview and public-site checks covered the complete APK checksum, download MIME
-  and attachment headers, a non-cacheable 307 redirect, byte ranges (206), mobile
-  and desktop layouts, and downloading by clicking the button in Chromium.
+  and attachment headers, a non-cacheable 307 redirect and byte ranges (206).
   Public `/login` and `/sw.js` returned 200. Database migrations were not required.
 
 ## Publish or update
