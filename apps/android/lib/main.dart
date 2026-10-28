@@ -92,7 +92,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) unawaited(_resume());
   }
   Future<void> _resume() async {
-    // Rescheduling never changes displayed fields, so the list does not wait for it.
+    // The list does not wait for rescheduling. If disarming reveals a web delivery,
+    // the native side sends notesChanged.
     await _reload();
     try { await widget.store.reschedule(); }
     catch (e) { _toast('Could not restore reminders: $e'); }

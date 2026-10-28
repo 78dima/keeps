@@ -62,6 +62,30 @@ public class ReminderSyncTest {
         while (!notified(id) && System.currentTimeMillis()<deadline) Thread.sleep(30);
         assertTrue("Expected scheduled reminder notification",notified(id));
     }
+    /** Android 13+ reports POST_NOTIFICATIONS as denied through this context. */
+    private Context blocked() {
+        Assume.assumeTrue(Build.VERSION.SDK_INT >= 33);
+        return new android.content.ContextWrapper(context) {
+            @Override public int checkSelfPermission(String permission) {
+                return Manifest.permission.POST_NOTIFICATIONS.equals(permission)
+                    ? android.content.pm.PackageManager.PERMISSION_DENIED : super.checkSelfPermission(permission);
+            }
+        };
+    }
+    private void openVersion(int version, String... files) throws Exception {
+        db.close(); context.deleteDatabase("test-reminders.db");
+        try(SQLiteDatabase old=context.openOrCreateDatabase("test-reminders.db",0,null)) {
+            for(String file:files) {
+                try(java.io.InputStream in=context.getAssets().open(file)) {
+                    java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
+                    byte[] buffer=new byte[4096]; int count;
+                    while((count=in.read(buffer))!=-1)out.write(buffer,0,count);
+                    for(String statement:out.toString("UTF-8").split(";"))if(!statement.trim().isEmpty())old.execSQL(statement);
+                }
+            }
+            old.setVersion(version);
+        }
+    }
     private void expire(JSONObject source) throws Exception {
         // Advance this fixture's deadline instead of sleeping for an alarm.
         // Keep its version and durable armed bit, as when time simply elapses.
@@ -160,14 +184,8 @@ public class ReminderSyncTest {
     }
 
     @Test public void deniedNotificationDoesNotBecomeALateBurstWhenPermissionReturns() throws Exception {
-        if(Build.VERSION.SDK_INT<33) return;
+        Context blocked=blocked();
         JSONObject r=remote(System.currentTimeMillis()+3600000L,false); accept(r); reconcileAll(); expire(r);
-        Context blocked=new android.content.ContextWrapper(context) {
-            @Override public int checkSelfPermission(String permission) {
-                return Manifest.permission.POST_NOTIFICATIONS.equals(permission)
-                    ? android.content.pm.PackageManager.PERMISSION_DENIED : super.checkSelfPermission(permission);
-            }
-        };
         String id=r.getString("id"); ReminderScheduler.deliver(blocked,db,id);
         assertEquals(false,note(r).get("isReminderSent")); assertEquals(false,note(r).get("reminderArmed"));
         reconcileAll(); ReminderScheduler.deliver(context,db,id); assertFalse(notified(id));
@@ -191,9 +209,84 @@ public class ReminderSyncTest {
             old.setVersion(3);
         }
         db=new NoteDatabase(context,"test-reminders.db"); reconcileAll(); ReminderScheduler.deliver(context,db,id);
-        assertEquals(4,db.getReadableDatabase().getVersion()); assertEquals("Keep old note",db.find(id).get("title"));
+        assertEquals(5,db.getReadableDatabase().getVersion()); assertEquals("Keep old note",db.find(id).get("title"));
         assertEquals(1234L,db.find(id).get("updatedAt")); assertEquals(false,db.find(id).get("reminderArmed"));
-        assertEquals("987",db.checkpoint(OWNER)); assertEquals("queued",db.pending(OWNER).getJSONObject(0).getString("title"));
+        // v5 pulls every note again to record server delivery flags.
+        assertEquals("0",db.checkpoint(OWNER)); assertEquals("queued",db.pending(OWNER).getJSONObject(0).getString("title"));
         assertFalse(notified(id));
+    }
+
+    @Test public void webDeliveryPulledWhileArmedShowsWhenBlockedAlarmFires() throws Exception {
+        Context blocked=blocked();
+        JSONObject r=remote(System.currentTimeMillis()+3600000L,false); accept(r); reconcileAll();
+        String id=r.getString("id"); assertEquals(true,note(r).get("reminderArmed"));
+        expire(r); r.put("is_reminder_sent",true); accept(r);
+        // The armed device still owns delivery, so the web flag is only recorded.
+        assertEquals(false,note(r).get("isReminderSent")); assertEquals(true,note(r).get("remoteSent"));
+        String token=(String)db.changes(null).get("token");
+        ReminderScheduler.deliver(blocked,db,id);
+        assertEquals(true,note(r).get("isReminderSent")); assertEquals(false,note(r).get("reminderArmed"));
+        assertFalse(notified(id));
+        @SuppressWarnings("unchecked") List<Map<String,Object>> rows=(List<Map<String,Object>>)db.changes(token).get("rows");
+        assertEquals(1,rows.size()); assertEquals(true,rows.get(0).get("isReminderSent"));
+        // Restoring permission neither re-arms nor replays it.
+        reconcileAll(); ReminderScheduler.deliver(context,db,id);
+        assertFalse(notified(id)); assertEquals(false,note(r).get("reminderArmed"));
+    }
+
+    @Test public void blockedNotificationsNeverArmAndSyncShowsWebDelivery() throws Exception {
+        Context blocked=blocked();
+        JSONObject r=remote(System.currentTimeMillis()+3600000L,false); accept(r);
+        assertFalse(ReminderScheduler.reconcile(blocked,db,note(r)));
+        assertEquals(false,note(r).get("reminderArmed"));
+        expire(r); r.put("is_reminder_sent",true); accept(r);
+        assertEquals(true,note(r).get("isReminderSent"));
+        reconcileAll(); ReminderScheduler.deliver(context,db,r.getString("id"));
+        assertFalse(notified(r.getString("id")));
+    }
+
+    @Test public void blockingAfterArmingRevealsWebDeliveryOnReschedule() throws Exception {
+        Context blocked=blocked();
+        JSONObject r=remote(System.currentTimeMillis()+3600000L,false); accept(r); reconcileAll();
+        expire(r); r.put("is_reminder_sent",true); accept(r);
+        assertEquals(false,note(r).get("isReminderSent"));
+        assertTrue(ReminderScheduler.reconcile(blocked,db,note(r)));
+        assertEquals(true,note(r).get("isReminderSent")); assertEquals(false,note(r).get("reminderArmed"));
+    }
+
+    @Test public void blockedFutureReminderArmsAgainWhenNotificationsReturn() throws Exception {
+        Context blocked=blocked();
+        JSONObject r=remote(System.currentTimeMillis()+3600000L,false); accept(r); reconcileAll();
+        ReminderScheduler.reconcile(blocked,db,note(r));
+        assertEquals(false,note(r).get("reminderArmed")); assertEquals(false,note(r).get("isReminderSent"));
+        reconcileAll(); assertEquals(true,note(r).get("reminderArmed"));
+    }
+
+    @Test public void newLocalReminderVersionForgetsAnOldWebDelivery() throws Exception {
+        Context blocked=blocked();
+        JSONObject r=remote(System.currentTimeMillis()-60000L,true); accept(r);
+        String id=r.getString("id"); assertEquals(true,note(r).get("remoteSent"));
+        Map<String,Object> patch=new HashMap<>(); patch.put("id",id);
+        patch.put("reminderDate",System.currentTimeMillis()+3600000L); db.save(patch);
+        assertEquals(false,note(r).get("remoteSent")); assertEquals(false,note(r).get("isReminderSent"));
+        ReminderScheduler.reconcile(blocked,db,note(r));
+        assertEquals(false,note(r).get("isReminderSent"));
+    }
+
+    @Test public void upgradeFromV4KeepsArmedAlarmsAndQueueAndPullsDeliveryFlagsAgain() throws Exception {
+        String id=UUID.randomUUID().toString(); ids.add(id);
+        openVersion(4,"schema.sql","sync-migration.sql","reminder-migration.sql","reminder-arming-migration.sql");
+        try(SQLiteDatabase old=context.openOrCreateDatabase("test-reminders.db",0,null)) {
+            old.execSQL("INSERT INTO notes(id,owner_id,title,created_at,updated_at,reminder_at,reminder_armed) VALUES(?,?,?,1,1234,?,1)",
+                new Object[]{id,OWNER,"Armed before v5",System.currentTimeMillis()+3600000L});
+            old.execSQL("INSERT INTO sync_outbox(note_id,owner_id,edit_id,payload) VALUES(?,?,?,?)",new Object[]{id,OWNER,"00000000-0000-0000-0000-000000000000","{\"title\":\"queued\"}"});
+            old.execSQL("INSERT INTO sync_state(owner_id,revision) VALUES(?,?)",new Object[]{OWNER,"987"});
+        }
+        db=new NoteDatabase(context,"test-reminders.db");
+        assertEquals(5,db.getReadableDatabase().getVersion());
+        Map<String,Object> migrated=db.find(id);
+        assertEquals("Armed before v5",migrated.get("title")); assertEquals(1234L,migrated.get("updatedAt"));
+        assertEquals(true,migrated.get("reminderArmed")); assertEquals(false,migrated.get("remoteSent"));
+        assertEquals("0",db.checkpoint(OWNER)); assertEquals("queued",db.pending(OWNER).getJSONObject(0).getString("title"));
     }
 }

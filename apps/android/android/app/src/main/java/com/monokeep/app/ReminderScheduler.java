@@ -60,21 +60,37 @@ public final class ReminderScheduler {
         notifications(context).cancel(id, 0);
     }
 
+    private static void changed(Context context) {
+        context.sendBroadcast(new Intent(CHANGED).setPackage(context.getPackageName()));
+    }
+
     public static void reconcile(Context context, Map<String, Object> note) {
         reconcile(context, NoteDatabase.get(context), note);
     }
 
-    static void reconcile(Context context, NoteDatabase db, Map<String, Object> note) {
+    static boolean reconcile(Context context, NoteDatabase db, Map<String, Object> note) {
+        return reconcile(context, db, note, allowed(context));
+    }
+
+    /** Returns true when disarming revealed a delivery the server recorded. */
+    static boolean reconcile(Context context, NoteDatabase db, Map<String, Object> note, boolean allowed) {
         String id = (String) note.get("id");
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
         if (Boolean.TRUE.equals(note.get("isDeleted")) || Boolean.TRUE.equals(note.get("syncDeleted")) || Boolean.FALSE.equals(note.get("reminderEnabled")) || note.get("reminderDate") == null) {
-            db.disarmReminder(id);
+            boolean shown = db.disarmReminder(id);
             cancel(context, id);
-            return;
+            return shown;
         }
         if (Boolean.TRUE.equals(note.get("isReminderSent"))) {
             alarms.cancel(alarmIntent(context, id));
-            return;
+            return false;
+        }
+        if (!allowed) {
+            // This device cannot show the reminder, so the web/Telegram delivery is authoritative.
+            // Enabling notifications later arms future reminders that are still unsent.
+            boolean shown = db.disarmReminder(id);
+            alarms.cancel(alarmIntent(context, id));
+            return shown;
         }
         long when = ((Number) note.get("reminderDate")).longValue();
         if (when <= System.currentTimeMillis()) {
@@ -82,11 +98,11 @@ public final class ReminderScheduler {
             // previously armed system alarm alone: its receiver may be delayed
             // by Android and must not be canceled by a concurrent sync.
             if (!Boolean.TRUE.equals(note.get("reminderArmed"))) cancel(context, id);
-            return;
+            return false;
         }
         // The deadline can pass between the time check and the SQL update.
         // Validate first so that a failed re-arm cannot cancel a due alarm.
-        if (!db.armReminder(note)) return;
+        if (!db.armReminder(note)) return false;
         alarms.cancel(alarmIntent(context, id));
         notifications(context).cancel(id, 0);
         PendingIntent pending = alarmIntent(context, id);
@@ -99,13 +115,17 @@ public final class ReminderScheduler {
                 alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
             }
         } catch (RuntimeException failed) {
-            db.disarmReminder(id);
+            if (db.disarmReminder(id)) changed(context);
             throw failed;
         }
+        return false;
     }
 
     public static void rescheduleAll(Context context) {
-        for (Map<String, Object> note : NoteDatabase.get(context).reminderCandidates()) reconcile(context, note);
+        NoteDatabase db = NoteDatabase.get(context);
+        boolean allowed = allowed(context), shown = false;
+        for (Map<String, Object> note : db.reminderCandidates()) shown |= reconcile(context, db, note, allowed);
+        if (shown) changed(context);
     }
 
     public static void deliver(Context context, String id) {
@@ -119,11 +139,11 @@ public final class ReminderScheduler {
                 || Boolean.FALSE.equals(note.get("reminderEnabled")) || note.get("reminderDate") == null) return;
         long when = ((Number) note.get("reminderDate")).longValue();
         if (when > System.currentTimeMillis()) {
-            reconcile(context, db, note);
+            if (reconcile(context, db, note)) changed(context);
             return;
         }
         // Enabling notifications later must not replay expired reminders in bulk.
-        if (!allowed(context)) { db.disarmReminder(id); return; }
+        if (!allowed(context)) { if (db.disarmReminder(id)) changed(context); return; }
         Intent open = new Intent(context, MainActivity.class)
             .setAction(Intent.ACTION_VIEW)
             .setData(new Uri.Builder().scheme("monokeep").authority("note").appendPath(id).build())
@@ -148,10 +168,10 @@ public final class ReminderScheduler {
         try {
             notifications(context).notify(id, 0, builder.build());
             db.markReminderSent(id, when);
-            context.sendBroadcast(new Intent(CHANGED).setPackage(context.getPackageName()));
+            changed(context);
         } catch (SecurityException denied) {
-            // A denied notification is never recorded as delivered.
-            db.disarmReminder(id);
+            // A denied notification is never recorded as delivered by this device.
+            if (db.disarmReminder(id)) changed(context);
         }
     }
 }

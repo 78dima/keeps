@@ -5,6 +5,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.database.sqlite.SQLiteStatement;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.time.Instant;
@@ -46,7 +47,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
 
     // A different file name lets instrumentation tests exercise real SQLite in isolation.
     NoteDatabase(Context context, String name) {
-        super(context, name, null, 4);
+        super(context, name, null, 5);
         this.context = context;
         setWriteAheadLoggingEnabled(true);
     }
@@ -70,6 +71,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         migrateSync(db);
         migrateReminders(db);
         migrateAsset(db, "reminder-arming-migration.sql");
+        migrateAsset(db, "reminder-delivery-migration.sql");
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
@@ -78,6 +80,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         // Existing overdue rows have no proof of a current device alarm. Future
         // reminders are armed again by rescheduleAll after upgrade/open/boot.
         if (oldVersion < 4) migrateAsset(db, "reminder-arming-migration.sql");
+        // Earlier pulls discarded the server delivery flag while this device was armed.
+        // The migration resets the pull cursor, so the next sync records it for every note.
+        if (oldVersion < 5) migrateAsset(db, "reminder-delivery-migration.sql");
     }
 
     private void migrateSync(SQLiteDatabase db) { migrateAsset(db, "sync-migration.sql"); }
@@ -273,6 +278,8 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         row.put("reminderVersion", intentChanged || existing == null ? row.get("editId") : existing.get("reminderVersion"));
         row.put("isReminderSent", intentChanged ? false : existing != null && Boolean.TRUE.equals(existing.get("isReminderSent")));
         if (row.get("reminderDate") == null) row.put("isReminderSent", false);
+        // The server resets its delivery flag for a new reminder version as well.
+        row.put("remoteSent", !intentChanged && existing != null && row.get("reminderDate") != null && Boolean.TRUE.equals(existing.get("remoteSent")));
         row.put("reminderArmed", sameReminder(existing, row) && Boolean.TRUE.equals(existing.get("reminderArmed")));
         ContentValues values = values(row);
         SQLiteDatabase db = getWritableDatabase();
@@ -355,14 +362,37 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 (String)note.get("reminderVersion"), Long.toString(System.currentTimeMillis())}) == 1;
     }
 
-    void disarmReminder(String id) {
+    /**
+     * This device stops delivering this reminder. A delivery the server recorded meanwhile
+     * becomes visible. Returns true when the displayed delivery state changed.
+     */
+    boolean disarmReminder(String id) {
+        String owner = SyncSession.owner(context);
+        SQLiteDatabase db = getWritableDatabase();
+        boolean shown;
+        try (SQLiteStatement adopt = db.compileStatement(
+                "UPDATE notes SET reminder_sent = 1 WHERE id = ? AND owner_id = ? AND remote_sent = 1 AND reminder_sent = 0")) {
+            adopt.bindString(1, id); adopt.bindString(2, owner);
+            shown = adopt.executeUpdateDelete() > 0;
+        }
         ContentValues values = new ContentValues(); values.put("reminder_armed", 0);
-        getWritableDatabase().update("notes", values, "id = ? AND owner_id = ? AND reminder_armed = 1", new String[]{id, SyncSession.owner(context)});
+        db.update("notes", values, "id = ? AND owner_id = ? AND reminder_armed = 1", new String[]{id, owner});
+        if (shown) touch(id);
+        return shown;
     }
 
     void disarmReminders() {
+        String owner = SyncSession.owner(context);
+        SQLiteDatabase db = getWritableDatabase();
+        int shown;
+        try (SQLiteStatement adopt = db.compileStatement(
+                "UPDATE notes SET reminder_sent = 1 WHERE owner_id = ? AND remote_sent = 1 AND reminder_sent = 0")) {
+            adopt.bindString(1, owner);
+            shown = adopt.executeUpdateDelete();
+        }
         ContentValues values = new ContentValues(); values.put("reminder_armed", 0);
-        getWritableDatabase().update("notes", values, "owner_id = ?", new String[]{SyncSession.owner(context)});
+        db.update("notes", values, "owner_id = ?", new String[]{owner});
+        if (shown > 0) reset();
     }
 
     private static boolean sameReminder(Map<String, Object> before, Map<String, Object> after) {
@@ -398,6 +428,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         values.put("reminder_enabled", Boolean.FALSE.equals(row.get("reminderEnabled")) ? 0 : 1);
         values.put("reminder_version", Objects.toString(row.get("reminderVersion"), "00000000-0000-0000-0000-000000000000"));
         values.put("reminder_armed", Boolean.TRUE.equals(row.get("reminderArmed")) ? 1 : 0);
+        values.put("remote_sent", Boolean.TRUE.equals(row.get("remoteSent")) ? 1 : 0);
         if (row.get("reminderDate") instanceof Number) values.put("reminder_at", ((Number) row.get("reminderDate")).longValue());
         else values.putNull("reminder_at");
         String[] flags = {"isPinned", "isArchived", "isDeleted", "isReminderSent"};
@@ -424,6 +455,8 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         // v2 -> v3 outbox reconstruction runs before the v4 column is added.
         int armed = cursor.getColumnIndex("reminder_armed");
         row.put("reminderArmed", armed >= 0 && cursor.getInt(armed) == 1);
+        int remoteSent = cursor.getColumnIndex("remote_sent");
+        row.put("remoteSent", remoteSent >= 0 && cursor.getInt(remoteSent) == 1);
         int reminder = cursor.getColumnIndexOrThrow("reminder_at");
         row.put("reminderDate", cursor.isNull(reminder) ? null : cursor.getLong(reminder));
         String[] flags = {"isPinned", "isArchived", "isDeleted", "isReminderSent"};
@@ -515,6 +548,8 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 boolean same = sameReminder(local, next);
                 boolean armed = same && Boolean.TRUE.equals(local.get("reminderArmed"));
                 next.put("reminderArmed", armed);
+                // Kept even while this device is armed, so a later disarm can show the web delivery.
+                next.put("remoteSent", Boolean.TRUE.equals(next.get("isReminderSent")));
                 if (same) next.put("isReminderSent", Boolean.TRUE.equals(local.get("isReminderSent"))
                     || (!armed && Boolean.TRUE.equals(next.get("isReminderSent"))));
                 // A losing pin edit must not retain its display position after the server wins.
