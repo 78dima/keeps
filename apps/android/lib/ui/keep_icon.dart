@@ -85,18 +85,23 @@ class _IconPainter extends CustomPainter {
 }
 
 class IconAction extends StatelessWidget {
-  const IconAction({super.key, required this.glyph, required this.label, required this.onPressed, this.color, this.filled = false, this.size = 40});
+  const IconAction({super.key, required this.glyph, required this.label, required this.onPressed, this.color, this.filled = false, this.size = 40, this.tooltip = true});
   final KeepGlyph glyph;
   final String label;
   final VoidCallback? onPressed;
   final Color? color;
   final bool filled;
   final double size;
+  /// Note lists omit the Tooltip overlay per button; the label remains for accessibility.
+  final bool tooltip;
   @override
-  Widget build(BuildContext context) => IconButton(
-    tooltip: label, onPressed: onPressed,
-    constraints: BoxConstraints.tightFor(width: size, height: size),
-    padding: const EdgeInsets.all(8),
-    icon: KeepIcon(glyph, size: size <= 36 ? 16 : 20, color: color ?? KeepIcon.mutedIcon, filled: filled),
-  );
+  Widget build(BuildContext context) {
+    final icon = KeepIcon(glyph, size: size <= 36 ? 16 : 20, color: color ?? KeepIcon.mutedIcon, filled: filled);
+    return IconButton(
+      tooltip: tooltip ? label : null, onPressed: onPressed,
+      constraints: BoxConstraints.tightFor(width: size, height: size),
+      padding: const EdgeInsets.all(8),
+      icon: tooltip ? icon : Semantics(label: label, child: icon),
+    );
+  }
 }

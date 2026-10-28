@@ -9,6 +9,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import static org.junit.Assert.*;
 
@@ -26,6 +28,68 @@ public class NoteDatabaseTest {
         Map<String, Object> row = new HashMap<>();
         for (int i = 0; i < pairs.length; i += 2) row.put((String) pairs[i], pairs[i + 1]);
         return row;
+    }
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> rows(Map<String, Object> changes) { return (List<Map<String, Object>>) changes.get("rows"); }
+    @SuppressWarnings("unchecked")
+    @Test public void changesSendPreviewsOnceThenOnlyChangedRows() {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < 300; i++) text.append("слово ");
+        Map<String, Object> longNote = db.save(row("title", "Long", "content", text + "КОНЕЦ", "tags", Arrays.asList("Работа")));
+        Map<String, Object> shortNote = db.save(row("title", "Short", "content", "small", "reminderDate", 4000000000000L));
+        Map<String, Object> full = db.changes(null);
+        assertNull(full.get("ids"));
+        assertEquals(2, rows(full).size());
+        for (Map<String, Object> preview : rows(full)) {
+            assertFalse(preview.containsKey("editId"));
+            if (preview.get("id").equals(longNote.get("id"))) {
+                assertEquals(true, preview.get("isPreview"));
+                assertEquals(NoteDatabase.PREVIEW, ((String) preview.get("content")).length());
+            } else {
+                assertEquals(false, preview.get("isPreview"));
+                assertEquals("small", preview.get("content"));
+            }
+        }
+        String token = (String) full.get("token");
+        assertEquals(true, db.changes(token).get("unchanged"));
+        // Arming is not displayed and must not resend the list.
+        assertTrue(db.armReminder(db.find((String) shortNote.get("id"))));
+        assertEquals(true, db.changes(token).get("unchanged"));
+
+        db.save(row("id", shortNote.get("id"), "title", "Edited"));
+        Map<String, Object> delta = db.changes(token);
+        assertEquals(new HashSet<>(Arrays.asList(longNote.get("id"), shortNote.get("id"))), new HashSet<>((List<String>) delta.get("ids")));
+        assertEquals(1, rows(delta).size());
+        assertEquals("Edited", rows(delta).get(0).get("title"));
+
+        token = (String) delta.get("token");
+        db.save(row("id", shortNote.get("id"), "isDeleted", true));
+        db.deleteForever((String) shortNote.get("id"));
+        delta = db.changes(token);
+        assertEquals(Arrays.asList(longNote.get("id")), delta.get("ids"));
+        assertTrue(rows(delta).isEmpty());
+
+        // A cursor from another database instance or process is never trusted.
+        NoteDatabase other = new NoteDatabase(context, "test-notes.db");
+        try { assertNull(other.changes((String) delta.get("token")).get("ids")); }
+        finally { other.close(); }
+        assertNull(db.changes("garbage").get("ids"));
+    }
+    @Test public void searchReadsFullContentAndTagsIgnoringCase() {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < 300; i++) text.append("слово ");
+        Map<String, Object> longNote = db.save(row("title", "Long", "content", text + "КОНЕЦ"));
+        Map<String, Object> tagged = db.save(row("title", "Tagged", "tags", Arrays.asList("Работа")));
+        assertEquals(Arrays.asList(longNote.get("id")), db.search("конец"));
+        assertEquals(Arrays.asList(tagged.get("id")), db.search("РАБ"));
+        assertTrue(db.search("missing").isEmpty());
+    }
+    @Test public void onlyNotesWithRemindersNeedRescheduling() {
+        Map<String, Object> reminder = db.save(row("title", "Reminder", "reminderDate", 4000000000000L));
+        db.save(row("title", "Plain"));
+        List<Map<String, Object>> candidates = db.reminderCandidates();
+        assertEquals(1, candidates.size());
+        assertEquals(reminder.get("id"), candidates.get(0).get("id"));
     }
     @Test public void dataSurvivesDatabaseReopen() {
         Map<String, Object> note = db.save(row("title", "Привет", "content", "One\nTwo", "tags", Arrays.asList("a", "a")));

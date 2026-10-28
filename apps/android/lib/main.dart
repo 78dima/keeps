@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'platform/native_store.dart';
 import 'models/note.dart';
-import 'ui/balanced_columns.dart';
 import 'ui/create_note.dart';
 import 'ui/keep_icon.dart';
 import 'ui/native_dialogs.dart';
@@ -55,7 +54,15 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   Timer? _reloadTimer;
   Future<void>? _reloadFuture;
   bool _reloadAgain = false;
+  String? _token;
+  Set<String>? _matches;
+  int _searchRun = 0;
   final _cardCache = <String, (Note, bool, Widget)>{};
+  (List<Note>, NoteView, Set<String>?, String?, String)? _derivedKey;
+  late _Derived _derived;
+  final _lanes = <(List<Note>, int, double), List<List<Note>>>{};
+  List<Note>? _pinnedSource;
+  List<Note> _pinned = const [];
 
   @override
   void initState() {
@@ -85,9 +92,10 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) unawaited(_resume());
   }
   Future<void> _resume() async {
+    // Rescheduling never changes displayed fields, so the list does not wait for it.
+    await _reload();
     try { await widget.store.reschedule(); }
     catch (e) { _toast('Could not restore reminders: $e'); }
-    await _reload();
   }
   void _queueReload() {
     if (!mounted) return;
@@ -104,23 +112,53 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     while (mounted && _reloadAgain) {
       _reloadAgain = false;
       try {
-        final rows = await widget.store.list();
+        final change = await widget.store.changes(_token);
         if (!mounted || _reloadAgain) continue;
-        final previous = {for (final note in _notes) note.id: note};
-        final notes = [for (final row in rows)
-          if (previous[row.id]?.sameValue(row) == true) previous[row.id]! else row]
-          ..sort(Note.compare);
+        final notes = change.unchanged ? _notes : _merge(change);
+        if (notes == null) {
+          // A delta referenced a note this screen never received: read a full snapshot.
+          _token = null; _reloadAgain = true; continue;
+        }
+        _token = change.token;
         final changed = notes.length != _notes.length ||
           Iterable<int>.generate(notes.length).any((i) => !identical(notes[i], _notes[i]));
         if (changed || _loading || _error != null) {
           final ids = notes.map((note) => note.id).toSet();
           _cardCache.removeWhere((id, _) => !ids.contains(id));
           setState(() { _notes = notes; _loading = false; _error = null; });
+          if (changed && _query.isNotEmpty) unawaited(_runSearch(_query));
         }
       } catch (e) {
         if (mounted && !_reloadAgain) setState(() { _error = 'Could not load notes: $e'; _loading = false; });
       }
     }
+  }
+  List<Note>? _merge(NoteChanges change) {
+    final previous = {for (final note in _notes) note.id: note};
+    Note keep(Note row) => previous[row.id]?.sameValue(row) == true ? previous[row.id]! : row;
+    final ids = change.ids;
+    if (ids == null) return [for (final row in change.rows) keep(row)]..sort(Note.compare);
+    final rows = {for (final row in change.rows) row.id: row};
+    final notes = <Note>[];
+    for (final id in ids) {
+      final row = rows[id];
+      final note = row == null ? previous[id] : keep(row);
+      if (note == null) return null;
+      notes.add(note);
+    }
+    return notes..sort(Note.compare);
+  }
+  void _queryChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () => unawaited(_runSearch(value)));
+  }
+  Future<void> _runSearch(String query) async {
+    final run = ++_searchRun;
+    if (query.isEmpty) { if (mounted) setState(() { _query = ''; _matches = null; }); return; }
+    try {
+      final matches = await widget.store.search(query);
+      if (mounted && run == _searchRun) setState(() { _query = query; _matches = matches; });
+    } catch (e) { if (run == _searchRun) _toast('Could not search notes: $e'); }
   }
   void _toast(String message) {
     if (!mounted) return;
@@ -140,10 +178,22 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   Future<void> _edit(Note? note, {bool resetReminder = false, String? sharedTitle, String? sharedContent}) async {
     if (_editing) return;
     _editing = true;
-    await showDialog<bool>(context: context, barrierDismissible: false,
-      builder: (_) => NoteEditor(store: widget.store, note: note, resetReminder: resetReminder,
-        sharedTitle: sharedTitle, sharedContent: sharedContent));
-    _editing = false;
+    try {
+      // Cards hold a preview of long content; the editor needs the full text.
+      final full = note == null ? null : await widget.store.get(note.id);
+      if (note != null && full == null) {
+        _toast('This note is no longer available.');
+      } else if (mounted) {
+        await showDialog<bool>(context: context, barrierDismissible: false,
+          builder: (_) => NoteEditor(store: widget.store, note: full, resetReminder: resetReminder,
+            sharedTitle: sharedTitle, sharedContent: sharedContent));
+      }
+    } catch (e) {
+      _toast('Could not open note: $e');
+    } finally {
+      _editing = false;
+    }
+    if (!mounted) return;
     await _reload();
     if (_queuedIntent != null && mounted) {
       final intent = _queuedIntent!; _queuedIntent = null; await _openIntent(intent);
@@ -202,8 +252,11 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   void _setView(NoteView view) { _closeDrawer(); setState(() => _view = view); }
 
   Widget _sidebar(bool mobile) {
-    final pinned = _notes.where((n) => n.isPinned && n.inView(NoteView.active)).toList()
-      ..sort(Note.compare);
+    if (!identical(_pinnedSource, _notes)) {
+      _pinnedSource = _notes;
+      _pinned = _notes.where((n) => n.isPinned && n.inView(NoteView.active)).toList();
+    }
+    final pinned = _pinned;
     Widget link(String text, KeepGlyph icon, VoidCallback action, {bool active = false}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(color: active ? const Color(0x0d000000) : Colors.transparent, borderRadius: BorderRadius.circular(32),
@@ -255,7 +308,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           Expanded(child: TextField(key: const Key('search'), controller: _search,
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             decoration: const InputDecoration(hintText: 'Search notes...', isDense: true),
-            onChanged: (value) { _debounce?.cancel(); _debounce = Timer(const Duration(milliseconds: 300), () { if (mounted) setState(() => _query = value); }); })),
+            onChanged: _queryChanged)),
         ]),
       ))),
       const SizedBox(width: 8),
@@ -270,44 +323,63 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       _cardCache[note.id] = cached;
       return cached.$3;
     }
-    final card = RepaintBoundary(key: ValueKey(note.id), child: NoteCard(
+    // The list delegate adds the repaint boundary around each card.
+    final card = NoteCard(key: ValueKey(note.id),
       note: note, busy: busy,
       onEdit: () => _edit(note), onResetReminder: () => _edit(note, resetReminder: true),
       onPin: () => _change(note, {'isPinned': !note.isPinned}, null),
-      onDelete: () => _delete(note), onRestore: () => _change(note, {'isDeleted': false, 'isArchived': false}, 'Note restored')));
+      onDelete: () => _delete(note), onRestore: () => _change(note, {'isDeleted': false, 'isArchived': false}, 'Note restored'));
     _cardCache[note.id] = (note, busy, card);
     // Retain recent widgets, without retaining offscreen render objects or an unbounded cache.
     if (_cardCache.length > 128) _cardCache.remove(_cardCache.keys.first);
     return card;
   }
 
-  Widget _cardsSliver(List<Note> notes, int columns) {
-    if (columns > 1) return SliverToBoxAdapter(child: BalancedColumns(
-      columns: columns, children: [for (final note in notes) _card(note)]));
+  Widget _lane(List<Note> notes) {
     final indices = {for (var i = 0; i < notes.length; i++) notes[i].id: i};
     return SliverList(delegate: SliverChildBuilderDelegate(
       (context, index) => Padding(key: ValueKey(notes[index].id),
         padding: EdgeInsets.only(bottom: index == notes.length - 1 ? 0 : 16),
         child: _card(notes[index])),
-      childCount: notes.length,
+      childCount: notes.length, addAutomaticKeepAlives: false,
       findChildIndexCallback: (key) => key is ValueKey<String> ? indices[key.value] : null,
     ));
   }
 
+  /// The website uses CSS columns: top-to-bottom order in balanced columns. Each
+  /// column is a lazy list, so heights are estimated instead of laying out every card.
+  Widget _cardsSliver(List<Note> notes, int columns, double width) {
+    if (columns == 1) return _lane(notes);
+    const gap = 16.0;
+    final count = math.max(1, math.min(columns, notes.length));
+    final lanes = _lanes[(notes, count, width)] ??= splitColumns(notes, count, (width - gap * (count - 1)) / count);
+    return SliverCrossAxisGroup(slivers: [
+      for (var i = 0; i < count; i++) SliverCrossAxisExpanded(flex: 1, sliver: SliverPadding(
+        padding: EdgeInsets.only(left: i == 0 ? 0 : gap / 2, right: i == count - 1 ? 0 : gap / 2),
+        sliver: _lane(lanes[i]))),
+    ]);
+  }
+
+  _Derived _derive() {
+    final key = (_notes, _view, _matches, _colorFilter, _tierFilter);
+    if (key != _derivedKey) {
+      _derivedKey = key;
+      _derived = _Derived(_notes, _view, _matches, _colorFilter, _tierFilter);
+      _lanes.clear();
+    }
+    return _derived;
+  }
+
   Widget _content(double viewport) {
-    final available = _notes.where((note) => note.inView(_view) && note.matches(_query)).toList();
-    final filtered = available.where((note) => _view != NoteView.active || _colorFilter == null || note.color == _colorFilter).toList();
-    final colors = available.map((note) => note.color).whereType<String>().where((color) => color != '#ffffff').toSet();
-    final pinned = filtered.where((note) => note.isPinned).toList();
-    final others = filtered.where((note) => !note.isPinned).toList();
-    final alarm = others.where((note) => note.reminderDate != null && note.reminderEnabled && note.isReminderSent).toList();
-    final scheduled = others.where((note) => note.reminderDate != null && note.reminderEnabled && !note.isReminderSent).toList();
-    final displayed = _view != NoteView.active || _tierFilter == 'all' ? others : _tierFilter == 'alarm' ? alarm : scheduled;
+    final derived = _derive();
+    final (available, filtered, colors, pinned, displayed) =
+      (derived.available, derived.filtered, derived.colors, derived.pinned, derived.displayed);
     final columns = viewport >= 1024 ? 3 : viewport >= 640 ? 2 : 1;
     const section = TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: muted);
     return LayoutBuilder(builder: (context, box) {
       final padding = viewport >= 1024 ? 32.0 : 16.0;
       final gutter = math.max(0.0, (box.maxWidth - 2 * padding - 1024) / 2);
+      final width = box.maxWidth - 2 * (padding + gutter);
       return RefreshIndicator(onRefresh: _resume, child: CustomScrollView(
       key: PageStorageKey(_view), physics: const AlwaysScrollableScrollPhysics(),
       slivers: [SliverPadding(
@@ -319,7 +391,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           else Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), child: Text(_view == NoteView.trash ? 'Trash' : 'Archive', style: heading.copyWith(fontSize: 24))),
           if (_view == NoteView.active && available.isNotEmpty) ...[
             Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final item in [('all', 'All', filtered.length), ('alarm', '🔥 Alarm', alarm.length), ('scheduled', '⏰ Scheduled', scheduled.length)])
+              for (final item in [('all', 'All', filtered.length), ('alarm', '🔥 Alarm', derived.alarm), ('scheduled', '⏰ Scheduled', derived.scheduled)])
                 ChoiceChip(key: Key('tier-${item.$1}'), label: Text('${item.$2}${item.$3 > 0 ? '  ${item.$3}' : ''}'), showCheckmark: false,
                   selected: _tierFilter == item.$1, selectedColor: foreground,
                   labelStyle: TextStyle(color: _tierFilter == item.$1 ? Colors.white : muted, fontSize: 14),
@@ -347,15 +419,15 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               textAlign: TextAlign.center, style: const TextStyle(color: muted)))
           ])),
           if (!_loading && filtered.isNotEmpty) ...[
-          if (_view == NoteView.trash) _cardsSliver(filtered, columns)
+          if (_view == NoteView.trash) _cardsSliver(filtered, columns, width)
           else ...[
             if (pinned.isNotEmpty) ...[
               const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(left: 4, bottom: 16), child: Text('📌 PINNED', style: section))),
-              _cardsSliver(pinned, columns),
+              _cardsSliver(pinned, columns, width),
             ],
             if (displayed.isNotEmpty) ...[
               SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(top: pinned.isNotEmpty ? 32 : 0, left: 4, bottom: 16), child: Text(_tierFilter == 'alarm' ? '🔥 ALARM' : _tierFilter == 'scheduled' ? '⏰ SCHEDULED' : '📄 NOTES', style: section))),
-              _cardsSliver(displayed, columns),
+              _cardsSliver(displayed, columns, width),
             ],
           ],
           ],
@@ -379,4 +451,70 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       ])),
     );
   }
+}
+
+class _Derived {
+  _Derived(List<Note> notes, NoteView view, Set<String>? matches, String? color, String tier) {
+    available = [for (final note in notes) if (note.inView(view) && (matches == null || matches.contains(note.id))) note];
+    filtered = view != NoteView.active || color == null ? available : [for (final note in available) if (note.color == color) note];
+    colors = {for (final note in available) if (note.color != null && note.color != '#ffffff') note.color!};
+    pinned = [for (final note in filtered) if (note.isPinned) note];
+    final others = [for (final note in filtered) if (!note.isPinned) note];
+    final alarms = [for (final note in others) if (note.reminderDate != null && note.reminderEnabled && note.isReminderSent) note];
+    final scheduled = [for (final note in others) if (note.reminderDate != null && note.reminderEnabled && !note.isReminderSent) note];
+    alarm = alarms.length; this.scheduled = scheduled.length;
+    displayed = view != NoteView.active || tier == 'all' ? others : tier == 'alarm' ? alarms : scheduled;
+  }
+  late final List<Note> available, filtered, pinned, displayed;
+  late final Set<String> colors;
+  late final int alarm, scheduled;
+}
+
+/// Contiguous columns with the smallest estimated maximum height, in reading order.
+List<List<Note>> splitColumns(List<Note> notes, int count, double width) {
+  const gap = 16.0;
+  final heights = [for (final note in notes) estimateCardHeight(note, width)];
+  var lower = heights.fold(0.0, math.max), upper = heights.fold(0.0, (sum, height) => sum + height + gap);
+  bool fits(double target) {
+    var columns = 1;
+    var height = 0.0;
+    for (final child in heights) {
+      if (height > 0 && height + gap + child > target) { columns++; height = 0; }
+      height += (height > 0 ? gap : 0) + child;
+    }
+    return columns <= count;
+  }
+  for (var i = 0; count > 1 && i < 30 && upper - lower > 1; i++) {
+    final middle = (lower + upper) / 2;
+    if (fits(middle)) { upper = middle; } else { lower = middle; }
+  }
+  final lanes = [for (var i = 0; i < count; i++) <Note>[]];
+  var column = 0, y = 0.0;
+  for (var i = 0; i < notes.length; i++) {
+    if (y > 0 && y + gap + heights[i] > upper + 0.01 && column < count - 1) { column++; y = 0; }
+    if (y > 0) y += gap;
+    lanes[column].add(notes[i]);
+    y += heights[i];
+  }
+  return lanes;
+}
+
+/// Approximates NoteCard's height: title, up to ten content lines and one chip row.
+double estimateCardHeight(Note note, double width) {
+  int lines(String text, double available, double glyph, int max) {
+    final perLine = math.max(1, available ~/ glyph);
+    var total = 0;
+    for (final paragraph in text.split('\n')) {
+      total += math.max(1, (paragraph.length / perLine).ceil());
+      if (total >= max) return max;
+    }
+    return total;
+  }
+  final inner = math.max(40.0, width - 40);
+  var height = 40 + lines(note.title, math.max(40.0, inner - 64), 9.5, 1 << 20) * 21.6;
+  if (note.content.isNotEmpty) height += 16 + lines(note.content, inner, 7.5, 10) * 24.4;
+  if (note.reminderDate != null || note.isReminderSent || note.tags.isNotEmpty) {
+    height += 16 + math.max(1, ((note.tags.length + 1) * 90 / inner).ceil()) * 32;
+  }
+  return height;
 }

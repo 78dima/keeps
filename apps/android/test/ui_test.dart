@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:monokeep/platform/native_store.dart';
+import 'list_store.dart';
 import 'package:monokeep/main.dart';
 import 'package:monokeep/models/note.dart';
+import 'package:monokeep/ui/keep_icon.dart';
 import 'package:monokeep/ui/note_card.dart';
 
-class MemoryStore extends NativeStore {
+class MemoryStore extends NativeStore with ListStore {
   final rows = <Note>[];
   bool failSave = false;
   @override Future<List<Note>> list() async => [...rows];
@@ -23,6 +25,8 @@ class MemoryStore extends NativeStore {
     return row;
   }
 }
+
+Finder action(String label) => find.byWidgetPredicate((widget) => widget is IconAction && widget.label == label);
 
 void main() {
   testWidgets('create, search, edit/cancel, pin, trash and restore', (tester) async {
@@ -42,7 +46,7 @@ void main() {
     await tester.tap(find.text('Create')); await tester.pumpAndSettle();
     expect(store.rows.single.content, 'Milk');
     expect(find.byType(NoteCard), findsOneWidget);
-    await tester.tap(find.byTooltip('Pin')); await tester.pumpAndSettle();
+    await tester.tap(action('Pin')); await tester.pumpAndSettle();
     expect(store.rows.single.isPinned, true);
     await tester.tap(find.text('Shopping')); await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('editor-title')), 'Discarded');
@@ -54,12 +58,12 @@ void main() {
     await tester.enterText(find.byKey(const Key('search')), 'MILK');
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.byType(NoteCard), findsOneWidget);
-    await tester.tap(find.byTooltip('Move to Trash')); await tester.pumpAndSettle();
+    await tester.tap(action('Move to Trash')); await tester.pumpAndSettle();
     expect(store.rows.single.isDeleted, true);
     await tester.tap(find.byTooltip('Open menu')); await tester.pumpAndSettle();
     expect(tester.takeException(), isNull, reason: 'The mobile sidebar header must fit its drawer.');
     await tester.tap(find.text('Trash')); await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Restore')); await tester.pumpAndSettle();
+    await tester.tap(action('Restore')); await tester.pumpAndSettle();
     expect(store.rows.single.isDeleted, false);
     expect(tester.takeException(), isNull);
   });
@@ -101,6 +105,16 @@ void main() {
     final saved=store.rows.firstWhere((note)=>note.title=='Scheduled red');
     expect(saved.reminderEnabled,false); expect(saved.reminderDate!.millisecondsSinceEpoch,when);
     expect(tester.takeException(),isNull);
+  });
+
+  testWidgets('card actions keep accessible labels without tooltips', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final store = MemoryStore();
+    await store.save({'title': 'Labelled'});
+    await tester.pumpWidget(MonoKeepApp(store: store)); await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('Pin'), findsOneWidget);
+    expect(find.bySemanticsLabel('Move to Trash'), findsOneWidget);
+    semantics.dispose();
   });
 
   for (final width in [320.0, 640.0, 800.0, 1280.0]) {

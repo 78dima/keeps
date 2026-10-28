@@ -30,7 +30,11 @@ class _NoteEditorState extends State<NoteEditor> with WidgetsBindingObserver {
   String? _error;
 
   @override
-  void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); unawaited(_loadPermissions()); }
+  void initState() {
+    super.initState();
+    assert(!(widget.note?.isPreview ?? false), 'Saving a preview would truncate the note');
+    WidgetsBinding.instance.addObserver(this); unawaited(_loadPermissions());
+  }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) { if (state == AppLifecycleState.resumed) unawaited(_loadPermissions()); }
   Future<void> _loadPermissions() async {

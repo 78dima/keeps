@@ -4,9 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:monokeep/main.dart';
 import 'package:monokeep/models/note.dart';
 import 'package:monokeep/platform/native_store.dart';
+import 'list_store.dart';
 import 'package:monokeep/ui/note_card.dart';
 
-class DraftStore extends NativeStore {
+class DraftStore extends NativeStore with ListStore {
   final rows = <Note>[];
   final requests = <Map<String, Object?>>[];
   bool loseNextReply = false;

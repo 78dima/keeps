@@ -21,6 +21,7 @@ class Note {
     this.isDeleted = false,
     this.isReminderSent = false,
     this.reminderEnabled = true,
+    this.isPreview = false,
     this.sortAt,
     this.reminderDate,
   });
@@ -29,6 +30,8 @@ class Note {
   final String? color;
   final List<String> tags;
   final bool isPinned, isArchived, isDeleted, isReminderSent, reminderEnabled;
+  /// List rows carry only the start of long content; the editor loads the full note.
+  final bool isPreview;
   final DateTime createdAt, updatedAt;
   final DateTime? reminderDate, sortAt;
 
@@ -46,6 +49,7 @@ class Note {
     isDeleted: data['isDeleted'] == true,
     isReminderSent: data['isReminderSent'] == true,
     reminderEnabled: data['reminderEnabled'] != false,
+    isPreview: data['isPreview'] == true,
     sortAt: data['sortAt'] == null ? null : DateTime.fromMillisecondsSinceEpoch((data['sortAt'] as num).toInt()),
   );
 
@@ -57,6 +61,7 @@ class Note {
     'isPinned': isPinned, 'isArchived': isArchived, 'isDeleted': isDeleted,
     'isReminderSent': isReminderSent,
     'reminderEnabled': reminderEnabled,
+    if (isPreview) 'isPreview': true,
     'sortAt': sortAt?.millisecondsSinceEpoch,
   };
 
@@ -65,7 +70,7 @@ class Note {
     content == other.content && color == other.color && createdAt == other.createdAt &&
     updatedAt == other.updatedAt && reminderDate == other.reminderDate && sortAt == other.sortAt &&
     isPinned == other.isPinned && isArchived == other.isArchived && isDeleted == other.isDeleted &&
-    isReminderSent == other.isReminderSent && reminderEnabled == other.reminderEnabled &&
+    isReminderSent == other.isReminderSent && reminderEnabled == other.reminderEnabled && isPreview == other.isPreview &&
     tags.length == other.tags.length && Iterable<int>.generate(tags.length).every((i) => tags[i] == other.tags[i]);
 
   bool matches(String query) {

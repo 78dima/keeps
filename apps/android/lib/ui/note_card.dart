@@ -24,7 +24,7 @@ class NoteCard extends StatelessWidget {
               style: heading.copyWith(fontSize: 18, height: 1.2))),
             if (note.content.isNotEmpty) ...[
               const SizedBox(height: 16),
-              Text(note.content, maxLines: 10, overflow: TextOverflow.ellipsis,
+              Text(note.isPreview ? '${note.content.trimRight()}…' : note.content, maxLines: 10, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 15, height: 1.625, color: Color(0xb31c1c1e))),
             ],
             if (note.reminderDate != null || note.isReminderSent || note.tags.isNotEmpty) ...[
@@ -55,9 +55,9 @@ class NoteCard extends StatelessWidget {
           IconAction(glyph: note.isDeleted ? KeepGlyph.restore : KeepGlyph.pin,
             label: note.isDeleted ? 'Restore' : note.isPinned ? 'Unpin' : 'Pin',
             onPressed: busy ? null : note.isDeleted ? onRestore : onPin,
-            color: note.isPinned && !note.isDeleted ? accent : muted, filled: note.isPinned, size: 36),
+            color: note.isPinned && !note.isDeleted ? accent : muted, filled: note.isPinned, size: 36, tooltip: false),
           IconAction(glyph: KeepGlyph.trash, label: note.isDeleted ? 'Delete Forever' : 'Move to Trash',
-            onPressed: busy ? null : onDelete, size: 36),
+            onPressed: busy ? null : onDelete, size: 36, tooltip: false),
         ])),
       ]),
     )),

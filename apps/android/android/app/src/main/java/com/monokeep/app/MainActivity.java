@@ -17,11 +17,13 @@ import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
+import io.flutter.plugin.common.StandardMessageCodec;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -66,7 +68,15 @@ public final class MainActivity extends FlutterActivity {
                     return SyncEngine.status(this);
                 }); break;
                 case "signOut": network(result, () -> { SyncEngine.signOut(getApplicationContext()); return null; }); break;
-                case "listNotes": io(result, () -> NoteDatabase.get(this).list()); break;
+                case "listChanges": io(result, () -> {
+                    // Encode on the storage thread; the reply then only copies bytes on the UI thread.
+                    ByteBuffer encoded = StandardMessageCodec.INSTANCE.encodeMessage(NoteDatabase.get(this).changes(call.argument("token")));
+                    byte[] bytes = new byte[encoded.capacity()];
+                    encoded.rewind(); encoded.get(bytes);
+                    return bytes;
+                }); break;
+                case "getNote": io(result, () -> NoteDatabase.get(this).find(call.argument("id"))); break;
+                case "searchNotes": io(result, () -> NoteDatabase.get(this).search(call.argument("query"))); break;
                 case "saveNote": io(result, () -> {
                     Map<String, Object> note = NoteDatabase.get(this).save((Map<String, Object>) call.arguments);
                     if (Boolean.TRUE.equals(note.get("syncDeleted"))) return note;

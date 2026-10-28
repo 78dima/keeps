@@ -105,7 +105,7 @@ public final class ReminderScheduler {
     }
 
     public static void rescheduleAll(Context context) {
-        for (Map<String, Object> note : NoteDatabase.get(context).list()) reconcile(context, note);
+        for (Map<String, Object> note : NoteDatabase.get(context).reminderCandidates()) reconcile(context, note);
     }
 
     public static void deliver(Context context, String id) {

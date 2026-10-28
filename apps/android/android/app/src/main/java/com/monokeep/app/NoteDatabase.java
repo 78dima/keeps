@@ -15,10 +15,13 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,7 +30,14 @@ import java.util.concurrent.Executors;
 public final class NoteDatabase extends SQLiteOpenHelper {
     public static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private static NoteDatabase instance;
+    /** Cards show at most ten lines; the editor reads the full text with find(). */
+    static final int PREVIEW = 800;
     private final Context context;
+    // A token from another process or database instance forces a full read.
+    private final String epoch = UUID.randomUUID().toString();
+    // Displayed-field changes since process start. Reminder arming is not displayed.
+    private final Map<String, Long> touched = new HashMap<>();
+    private long version, resetVersion;
 
     public static synchronized NoteDatabase get(Context context) {
         if (instance == null) instance = new NoteDatabase(context.getApplicationContext(), "monokeep.db");
@@ -88,16 +98,133 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     }
 
     public List<Map<String, Object>> list() {
-        String owner = SyncSession.owner(context);
-        if (!owner.isEmpty()) {
-            try (Cursor guest = getReadableDatabase().rawQuery("SELECT 1 FROM notes WHERE owner_id = '' LIMIT 1", null)) {
-                if (guest.moveToFirst()) adoptGuestNotes(owner);
-            }
-        }
+        adoptGuestNotesIfSignedIn();
         List<Map<String, Object>> result = new ArrayList<>();
         try (Cursor cursor = getReadableDatabase().query("notes", null, "owner_id = ? AND sync_deleted = 0", new String[]{SyncSession.owner(context)}, null, null,
                 "is_pinned DESC, sort_at DESC, id ASC")) {
             while (cursor.moveToNext()) result.add(read(cursor));
+        }
+        return result;
+    }
+
+    private void adoptGuestNotesIfSignedIn() {
+        String owner = SyncSession.owner(context);
+        if (owner.isEmpty()) return;
+        try (Cursor guest = getReadableDatabase().rawQuery("SELECT 1 FROM notes WHERE owner_id = '' LIMIT 1", null)) {
+            if (guest.moveToFirst()) adoptGuestNotes(owner);
+        }
+    }
+
+    /** Only notes that can hold an alarm or a delivered notification need reconciliation. */
+    List<Map<String, Object>> reminderCandidates() {
+        adoptGuestNotesIfSignedIn();
+        List<Map<String, Object>> result = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query("notes", null,
+                "owner_id = ? AND sync_deleted = 0 AND (reminder_at IS NOT NULL OR reminder_armed = 1)",
+                new String[]{SyncSession.owner(context)}, null, null, null)) {
+            while (cursor.moveToNext()) result.add(read(cursor));
+        }
+        return result;
+    }
+
+    private synchronized void touch(String id) { touched.put(id, ++version); }
+    private synchronized void reset() { touched.clear(); resetVersion = ++version; }
+
+    /**
+     * Card previews changed since token. Unchanged: {token, unchanged}. Full: {token, rows}.
+     * Delta: {token, ids, rows}, where ids lists every visible note and rows only changed ones.
+     */
+    public Map<String, Object> changes(String token) {
+        adoptGuestNotesIfSignedIn();
+        String owner = SyncSession.owner(context);
+        long current;
+        Set<String> changed = null;
+        synchronized (this) {
+            current = version;
+            String[] parts = token == null ? new String[0] : token.split("/", 3);
+            long since = -1;
+            if (parts.length == 3 && epoch.equals(parts[0]) && owner.equals(parts[2])) {
+                try { since = Long.parseLong(parts[1]); } catch (NumberFormatException ignored) { }
+            }
+            if (since >= resetVersion && since <= current) {
+                changed = new HashSet<>();
+                for (Map.Entry<String, Long> entry : touched.entrySet()) if (entry.getValue() > since) changed.add(entry.getKey());
+            }
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("token", epoch + "/" + current + "/" + owner);
+        if (changed != null && changed.isEmpty()) {
+            result.put("unchanged", true);
+            return result;
+        }
+        String visible = "owner_id = ? AND sync_deleted = 0";
+        if (changed == null) {
+            result.put("rows", previews(visible, new String[]{owner}));
+            return result;
+        }
+        List<String> ids = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query("notes", new String[]{"id"}, visible, new String[]{owner}, null, null, null)) {
+            while (cursor.moveToNext()) ids.add(cursor.getString(0));
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        List<String> pending = new ArrayList<>(changed);
+        // Stay below SQLite's bound-parameter limit on older Android versions.
+        for (int start = 0; start < pending.size(); start += 500) {
+            List<String> chunk = pending.subList(start, Math.min(pending.size(), start + 500));
+            String[] args = new String[chunk.size() + 1];
+            args[0] = owner;
+            for (int i = 0; i < chunk.size(); i++) args[i + 1] = chunk.get(i);
+            StringBuilder marks = new StringBuilder("?");
+            for (int i = 1; i < chunk.size(); i++) marks.append(",?");
+            rows.addAll(previews(visible + " AND id IN (" + marks + ")", args));
+        }
+        result.put("ids", ids);
+        result.put("rows", rows);
+        return result;
+    }
+
+    private List<Map<String, Object>> previews(String where, String[] args) {
+        String[] columns = {"id", "title", "substr(content, 1, " + PREVIEW + ")", "length(content) > " + PREVIEW, "color", "tags",
+            "created_at", "updated_at", "sort_at", "reminder_at", "reminder_enabled", "is_pinned", "is_archived", "is_deleted", "reminder_sent"};
+        List<Map<String, Object>> result = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query("notes", columns, where, args, null, null, null)) {
+            while (cursor.moveToNext()) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", cursor.getString(0));
+                row.put("title", cursor.getString(1));
+                row.put("content", cursor.getString(2));
+                row.put("isPreview", cursor.getInt(3) == 1);
+                row.put("color", cursor.getString(4));
+                row.put("tags", tags(cursor.getString(5)));
+                row.put("createdAt", cursor.getLong(6));
+                row.put("updatedAt", cursor.getLong(7));
+                row.put("sortAt", cursor.getLong(8));
+                row.put("reminderDate", cursor.isNull(9) ? null : cursor.getLong(9));
+                row.put("reminderEnabled", cursor.getInt(10) == 1);
+                row.put("isPinned", cursor.getInt(11) == 1);
+                row.put("isArchived", cursor.getInt(12) == 1);
+                row.put("isDeleted", cursor.getInt(13) == 1);
+                row.put("isReminderSent", cursor.getInt(14) == 1);
+                result.add(row);
+            }
+        }
+        return result;
+    }
+
+    /** IDs of visible notes whose title, full text or a tag contains query, ignoring case. */
+    public List<String> search(String query) {
+        String needle = query.toLowerCase(Locale.ROOT);
+        List<String> result = new ArrayList<>();
+        try (Cursor cursor = getReadableDatabase().query("notes", new String[]{"id", "title", "content", "tags"},
+                "owner_id = ? AND sync_deleted = 0", new String[]{SyncSession.owner(context)}, null, null, null)) {
+            while (cursor.moveToNext()) {
+                boolean found = cursor.getString(1).toLowerCase(Locale.ROOT).contains(needle)
+                    || cursor.getString(2).toLowerCase(Locale.ROOT).contains(needle);
+                if (!found) for (String tag : tags(cursor.getString(3))) {
+                    if (tag.toLowerCase(Locale.ROOT).contains(needle)) { found = true; break; }
+                }
+                if (found) result.add(cursor.getString(0));
+            }
         }
         return result;
     }
@@ -156,6 +283,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
             enqueue(db, row);
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
+        touch(id);
         if ("monokeep.db".equals(getDatabaseName())) SyncEngine.request(context);
         return Boolean.TRUE.equals(row.get("syncDeleted")) ? row : find(id);
     }
@@ -163,6 +291,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     public int importNotes(List<Map<String, Object>> notes) throws Exception {
         SQLiteDatabase db = getWritableDatabase();
         int imported = 0;
+        List<String> inserted = new ArrayList<>();
         db.beginTransaction();
         try {
             for (Map<String, Object> source : notes) {
@@ -187,12 +316,14 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 row.put("reminderArmed", false);
                 db.insertOrThrow("notes", null, values(row));
                 enqueue(db, row);
+                inserted.add((String) row.get("id"));
                 imported++;
             }
             db.setTransactionSuccessful();
         } finally {
             db.endTransaction();
         }
+        for (String id : inserted) touch(id);
         if ("monokeep.db".equals(getDatabaseName())) SyncEngine.request(context);
         return imported;
     }
@@ -209,8 +340,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         values.put("reminder_sent", 1);
         values.put("reminder_armed", 0);
         values.put("sort_at", SyncClock.now(context, 0));
-        getWritableDatabase().update("notes", values,
-                "id = ? AND reminder_at = ? AND is_deleted = 0 AND sync_deleted = 0 AND reminder_enabled = 1 AND owner_id = ?", new String[]{id, Long.toString(expectedDate), SyncSession.owner(context)});
+        if (getWritableDatabase().update("notes", values,
+                "id = ? AND reminder_at = ? AND is_deleted = 0 AND sync_deleted = 0 AND reminder_enabled = 1 AND owner_id = ?", new String[]{id, Long.toString(expectedDate), SyncSession.owner(context)}) > 0)
+            touch(id);
     }
 
     /** This device may deliver late only if it scheduled this version while future. */
@@ -225,7 +357,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
 
     void disarmReminder(String id) {
         ContentValues values = new ContentValues(); values.put("reminder_armed", 0);
-        getWritableDatabase().update("notes", values, "id = ? AND owner_id = ?", new String[]{id, SyncSession.owner(context)});
+        getWritableDatabase().update("notes", values, "id = ? AND owner_id = ? AND reminder_armed = 1", new String[]{id, SyncSession.owner(context)});
     }
 
     void disarmReminders() {
@@ -297,15 +429,18 @@ public final class NoteDatabase extends SQLiteOpenHelper {
         String[] flags = {"isPinned", "isArchived", "isDeleted", "isReminderSent"};
         String[] columns = {"is_pinned", "is_archived", "is_deleted", "reminder_sent"};
         for (int i = 0; i < flags.length; i++) row.put(flags[i], cursor.getInt(cursor.getColumnIndexOrThrow(columns[i])) == 1);
+        row.put("tags", tags(cursor.getString(cursor.getColumnIndexOrThrow("tags"))));
+        return row;
+    }
+    private static List<String> tags(String json) {
         List<String> tags = new ArrayList<>();
         try {
-            JSONArray array = new JSONArray(cursor.getString(cursor.getColumnIndexOrThrow("tags")));
+            JSONArray array = new JSONArray(json);
             for (int i = 0; i < array.length(); i++) tags.add(array.getString(i));
         } catch (Exception error) {
             throw new IllegalStateException("Invalid tags in database", error);
         }
-        row.put("tags", tags);
-        return row;
+        return tags;
     }
     static String syncId(String id) {
         try { return UUID.fromString(id).toString(); }
@@ -325,8 +460,10 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     /** Called once on sign-in; never reassigns another account's notes. */
     void adoptGuestNotes(String owner) {
         SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
+        boolean adopted = false;
         try (Cursor cursor = db.query("notes", null, "owner_id = ''", null, null, null, null)) {
             while (cursor.moveToNext()) {
+                adopted = true;
                 Map<String, Object> row = read(cursor);
                 String oldId = (String) row.get("id");
                 row.put("id", syncId(oldId)); row.put("ownerId", owner);
@@ -336,6 +473,8 @@ public final class NoteDatabase extends SQLiteOpenHelper {
             }
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
+        // IDs change, so every reader takes a full snapshot.
+        if (adopted) reset();
     }
 
     JSONArray pending(String owner) throws Exception {
@@ -358,6 +497,7 @@ public final class NoteDatabase extends SQLiteOpenHelper {
     /** Both page application and its checkpoint commit together. ACK never removes a later edit. */
     void accept(String owner, JSONArray rows, String revision) throws Exception {
         SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
+        List<String> applied = new ArrayList<>(), dropped = new ArrayList<>();
         try {
             for (int i = 0; i < rows.length(); i++) {
                 JSONObject remote = rows.getJSONObject(i);
@@ -382,8 +522,10 @@ public final class NoteDatabase extends SQLiteOpenHelper {
                 if (local != null && compare(local, next) == 0)
                     next.put("sortAt", Math.max(number(local.get("sortAt"),0), number(next.get("sortAt"),0)));
                 db.insertWithOnConflict("notes", null, values(next), SQLiteDatabase.CONFLICT_REPLACE);
-                if (Boolean.TRUE.equals(next.get("syncDeleted")) && owner.equals(SyncSession.owner(context)))
-                    ReminderScheduler.cancel(context, id);
+                applied.add(id);
+                // rescheduleAll skips notes without a date, so a cleared or replaced date cancels here.
+                if (Boolean.TRUE.equals(next.get("syncDeleted")) || (local != null && local.get("reminderDate") != null && !same))
+                    dropped.add(id);
                 // A newer winning server edit supersedes an older pending local snapshot too.
                 if (local != null) db.delete("sync_outbox", "note_id = ? AND owner_id = ? AND edit_id = ?",
                     new String[]{id, owner, (String) local.get("editId")});
@@ -395,6 +537,9 @@ public final class NoteDatabase extends SQLiteOpenHelper {
             }
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
+        for (String id : applied) touch(id);
+        // Only a committed page may cancel; a rolled-back page keeps its armed alarm.
+        if (owner.equals(SyncSession.owner(context))) for (String id : dropped) ReminderScheduler.cancel(context, id);
     }
     static int compare(Map<String, Object> a, Map<String, Object> b) {
         int time = Long.compare(number(a.get("updatedAt"), 0), number(b.get("updatedAt"), 0));
