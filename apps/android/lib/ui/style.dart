@@ -46,14 +46,18 @@ String reminderLabel(DateTime value) {
 }
 
 class Glass extends StatelessWidget {
-  const Glass({super.key, required this.child, this.opacity = 0.7});
+  const Glass({super.key, required this.child, this.opacity = 0.7, this.blur = true});
   final Widget child;
   final double opacity;
+  final bool blur;
   @override
-  Widget build(BuildContext context) => ClipRect(child: BackdropFilter(
-    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-    child: ColoredBox(color: Colors.white.withValues(alpha: opacity), child: child),
-  ));
+  Widget build(BuildContext context) {
+    final surface = ColoredBox(color: Colors.white.withValues(alpha: opacity), child: child);
+    // The header has only the uniform scaffold behind it, so blurring adds no detail.
+    return blur ? ClipRect(child: BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), child: surface,
+    )) : surface;
+  }
 }
 
 class Surface extends StatelessWidget {

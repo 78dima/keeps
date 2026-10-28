@@ -52,14 +52,17 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   bool _loading = true, _editing = false, _exporting = false;
   Map<String, dynamic>? _queuedIntent;
   Timer? _debounce;
-  int _revision = 0;
+  Timer? _reloadTimer;
+  Future<void>? _reloadFuture;
+  bool _reloadAgain = false;
+  final _cardCache = <String, (Note, bool, Widget)>{};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     NativeStore.channel.setMethodCallHandler((call) async {
-      if (call.method == 'notesChanged') await _reload();
+      if (call.method == 'notesChanged') _queueReload();
       if (call.method == 'openIntent') await _openIntent(Map<String, dynamic>.from(call.arguments as Map));
     });
     unawaited(_start());
@@ -75,7 +78,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     NativeStore.channel.setMethodCallHandler(null);
-    _search.dispose(); _debounce?.cancel(); super.dispose();
+    _search.dispose(); _debounce?.cancel(); _reloadTimer?.cancel(); super.dispose();
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -86,14 +89,37 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     catch (e) { _toast('Could not restore reminders: $e'); }
     await _reload();
   }
-  Future<void> _reload() async {
-    final revision = ++_revision;
-    try {
-      final notes = await widget.store.list();
-      notes.sort(Note.compare);
-      if (mounted && revision == _revision) setState(() { _notes = notes; _loading = false; _error = null; });
-    } catch (e) {
-      if (mounted && revision == _revision) setState(() { _error = 'Could not load notes: $e'; _loading = false; });
+  void _queueReload() {
+    if (!mounted) return;
+    if (_reloadFuture != null) { _reloadAgain = true; return; }
+    _reloadTimer?.cancel();
+    _reloadTimer = Timer(const Duration(milliseconds: 120), () => unawaited(_reload()));
+  }
+  Future<void> _reload() {
+    _reloadTimer?.cancel();
+    _reloadAgain = true;
+    return _reloadFuture ??= _drainReloads().whenComplete(() { _reloadFuture = null; });
+  }
+  Future<void> _drainReloads() async {
+    while (mounted && _reloadAgain) {
+      _reloadAgain = false;
+      try {
+        final rows = await widget.store.list();
+        if (!mounted || _reloadAgain) continue;
+        final previous = {for (final note in _notes) note.id: note};
+        final notes = [for (final row in rows)
+          if (previous[row.id]?.sameValue(row) == true) previous[row.id]! else row]
+          ..sort(Note.compare);
+        final changed = notes.length != _notes.length ||
+          Iterable<int>.generate(notes.length).any((i) => !identical(notes[i], _notes[i]));
+        if (changed || _loading || _error != null) {
+          final ids = notes.map((note) => note.id).toSet();
+          _cardCache.removeWhere((id, _) => !ids.contains(id));
+          setState(() { _notes = notes; _loading = false; _error = null; });
+        }
+      } catch (e) {
+        if (mounted && !_reloadAgain) setState(() { _error = 'Could not load notes: $e'; _loading = false; });
+      }
     }
   }
   void _toast(String message) {
@@ -194,18 +220,21 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3), decoration: BoxDecoration(color: const Color(0x0d000000), borderRadius: BorderRadius.circular(20)), child: const Text('Pro', style: TextStyle(fontSize: 12, color: muted))),
         if (mobile) ...[const SizedBox(width: 8), IconAction(glyph: KeepGlyph.close, label: 'Close sidebar', onPressed: _closeDrawer)],
       ]))),
-      Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(12, 24, 12, 16), children: [
-        link('Notes', KeepGlyph.bulb, () => _setView(NoteView.active), active: _view == NoteView.active),
-        link('Archive', KeepGlyph.archive, () => _setView(NoteView.archive), active: _view == NoteView.archive),
-        link('Trash', KeepGlyph.trash, () => _setView(NoteView.trash), active: _view == NoteView.trash),
-        if (pinned.isNotEmpty) ...[
-          const Padding(padding: EdgeInsets.fromLTRB(12, 36, 12, 8), child: Text('PINNED', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: muted, letterSpacing: 1.2))),
-          for (final note in pinned) ListTile(dense: true, minLeadingWidth: 12, horizontalTitleGap: 8,
+      Expanded(child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 24, 12, 16),
+        itemCount: 3 + (pinned.isEmpty ? 0 : pinned.length + 1),
+        itemBuilder: (context, index) {
+          if (index == 0) return link('Notes', KeepGlyph.bulb, () => _setView(NoteView.active), active: _view == NoteView.active);
+          if (index == 1) return link('Archive', KeepGlyph.archive, () => _setView(NoteView.archive), active: _view == NoteView.archive);
+          if (index == 2) return link('Trash', KeepGlyph.trash, () => _setView(NoteView.trash), active: _view == NoteView.trash);
+          if (index == 3) return const Padding(padding: EdgeInsets.fromLTRB(12, 36, 12, 8), child: Text('PINNED', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: muted, letterSpacing: 1.2)));
+          final note = pinned[index - 4];
+          return ListTile(key: ValueKey(note.id), dense: true, minLeadingWidth: 12, horizontalTitleGap: 8,
             leading: const KeepIcon(KeepGlyph.pin, size: 14),
             title: Text(note.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14)),
-            onTap: () { _closeDrawer(); unawaited(_edit(note)); }),
-        ],
-      ])),
+            onTap: () { _closeDrawer(); unawaited(_edit(note)); });
+        },
+      )),
       Container(padding: const EdgeInsets.all(12), decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0x0d000000)))),
         child: Column(children: [
           link('Import from Keep', KeepGlyph.upload, _import),
@@ -216,7 +245,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     ]));
   }
 
-  Widget _header(bool mobile) => Glass(opacity: 0.5, child: SizedBox(height: 64,
+  Widget _header(bool mobile) => Glass(opacity: 0.5, blur: false, child: SizedBox(height: 64,
     child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Row(children: [
       if (mobile) ...[IconAction(glyph: KeepGlyph.menu, label: 'Open menu', onPressed: () => _scaffold.currentState?.openDrawer()), const SizedBox(width: 8)],
       Flexible(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 400), child: Container(
@@ -234,12 +263,36 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     ])),
   ));
 
-  Widget _cards(List<Note> notes, int columns) => BalancedColumns(columns: columns, children: [
-    for (final note in notes) NoteCard(key: ValueKey(note.id), note: note, busy: _busy.contains(note.id),
+  Widget _card(Note note) {
+    final busy = _busy.contains(note.id);
+    final cached = _cardCache.remove(note.id);
+    if (cached != null && identical(cached.$1, note) && cached.$2 == busy) {
+      _cardCache[note.id] = cached;
+      return cached.$3;
+    }
+    final card = RepaintBoundary(key: ValueKey(note.id), child: NoteCard(
+      note: note, busy: busy,
       onEdit: () => _edit(note), onResetReminder: () => _edit(note, resetReminder: true),
       onPin: () => _change(note, {'isPinned': !note.isPinned}, null),
-      onDelete: () => _delete(note), onRestore: () => _change(note, {'isDeleted': false, 'isArchived': false}, 'Note restored')),
-  ]);
+      onDelete: () => _delete(note), onRestore: () => _change(note, {'isDeleted': false, 'isArchived': false}, 'Note restored')));
+    _cardCache[note.id] = (note, busy, card);
+    // Retain recent widgets, without retaining offscreen render objects or an unbounded cache.
+    if (_cardCache.length > 128) _cardCache.remove(_cardCache.keys.first);
+    return card;
+  }
+
+  Widget _cardsSliver(List<Note> notes, int columns) {
+    if (columns > 1) return SliverToBoxAdapter(child: BalancedColumns(
+      columns: columns, children: [for (final note in notes) _card(note)]));
+    final indices = {for (var i = 0; i < notes.length; i++) notes[i].id: i};
+    return SliverList(delegate: SliverChildBuilderDelegate(
+      (context, index) => Padding(key: ValueKey(notes[index].id),
+        padding: EdgeInsets.only(bottom: index == notes.length - 1 ? 0 : 16),
+        child: _card(notes[index])),
+      childCount: notes.length,
+      findChildIndexCallback: (key) => key is ValueKey<String> ? indices[key.value] : null,
+    ));
+  }
 
   Widget _content(double viewport) {
     final available = _notes.where((note) => note.inView(_view) && note.matches(_query)).toList();
@@ -252,12 +305,14 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     final displayed = _view != NoteView.active || _tierFilter == 'all' ? others : _tierFilter == 'alarm' ? alarm : scheduled;
     final columns = viewport >= 1024 ? 3 : viewport >= 640 ? 2 : 1;
     const section = TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: muted);
-    return RefreshIndicator(onRefresh: _resume, child: SingleChildScrollView(
+    return RefreshIndicator(onRefresh: _resume, child: CustomScrollView(
       key: PageStorageKey(_view), physics: const AlwaysScrollableScrollPhysics(),
-      padding: EdgeInsets.all(viewport >= 1024 ? 32 : 16),
-      child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1024), child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+      slivers: [SliverPadding(
+        padding: EdgeInsets.all(viewport >= 1024 ? 32 : 16),
+        sliver: SliverLayoutBuilder(builder: (context, constraints) => SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: math.max(0, (constraints.crossAxisExtent - 1024) / 2)),
+          sliver: SliverMainAxisGroup(slivers: [
+          SliverToBoxAdapter(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const SizedBox(height: 16),
           if (_view == NoteView.active) CreateNote(store: widget.store, onCreated: _reload)
           else Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), child: Text(_view == NoteView.trash ? 'Trash' : 'Archive', style: heading.copyWith(fontSize: 24))),
@@ -289,20 +344,24 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           else if (filtered.isEmpty && _error == null) Padding(padding: const EdgeInsets.only(top: 80),
             child: Text(_query.isNotEmpty || _view == NoteView.active ? 'No notes found' : _view == NoteView.trash ? 'Trash is empty' : 'Archive is empty',
               textAlign: TextAlign.center, style: const TextStyle(color: muted)))
-          else if (_view == NoteView.trash) _cards(filtered, columns)
+          ])),
+          if (!_loading && filtered.isNotEmpty) ...[
+          if (_view == NoteView.trash) _cardsSliver(filtered, columns)
           else ...[
             if (pinned.isNotEmpty) ...[
-              const Padding(padding: EdgeInsets.only(left: 4, bottom: 16), child: Text('📌 PINNED', style: section)),
-              _cards(pinned, columns),
+              const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(left: 4, bottom: 16), child: Text('📌 PINNED', style: section))),
+              _cardsSliver(pinned, columns),
             ],
             if (displayed.isNotEmpty) ...[
-              Padding(padding: EdgeInsets.only(top: pinned.isNotEmpty ? 32 : 0, left: 4, bottom: 16), child: Text(_tierFilter == 'alarm' ? '🔥 ALARM' : _tierFilter == 'scheduled' ? '⏰ SCHEDULED' : '📄 NOTES', style: section)),
-              _cards(displayed, columns),
+              SliverToBoxAdapter(child: Padding(padding: EdgeInsets.only(top: pinned.isNotEmpty ? 32 : 0, left: 4, bottom: 16), child: Text(_tierFilter == 'alarm' ? '🔥 ALARM' : _tierFilter == 'scheduled' ? '⏰ SCHEDULED' : '📄 NOTES', style: section))),
+              _cardsSliver(displayed, columns),
             ],
           ],
-          const SizedBox(height: 32),
-        ],
-      ))),
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 32)),
+          ]),
+        )),
+      )],
     ));
   }
 

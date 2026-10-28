@@ -32,6 +32,7 @@ import java.util.Map;
 public final class MainActivity extends FlutterActivity {
     private static final int IMPORT = 1101, EXPORT = 1102, NOTIFICATIONS = 1103;
     private MethodChannel channel;
+    private DisplayRefreshController displayRefresh;
     private MethodChannel.Result documentResult, permissionResult, pickerResult;
     private Map<String, Object> pendingIntent;
     private boolean dartReady;
@@ -139,9 +140,12 @@ public final class MainActivity extends FlutterActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (displayRefresh == null) displayRefresh = new DisplayRefreshController(this);
+        displayRefresh.start();
         SyncRealtime.start(getApplicationContext());
     }
     @Override protected void onPause() {
+        if (displayRefresh != null) displayRefresh.stop();
         SyncRealtime.stop();
         SyncEngine.request(getApplicationContext());
         super.onPause();

@@ -42,7 +42,7 @@ class _Columns extends RenderBox with ContainerRenderObjectMixin<RenderBox, _Col
       }
       return columns <= count;
     }
-    for (var i = 0; i < 30; i++) {
+    for (var i = 0; count > 1 && i < 30 && upper - lower > 0.1; i++) {
       final middle = (lower + upper) / 2;
       if (fits(middle)) { upper = middle; } else { lower = middle; }
     }

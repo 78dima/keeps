@@ -60,6 +60,14 @@ class Note {
     'sortAt': sortAt?.millisecondsSinceEpoch,
   };
 
+  // Compare every persisted field: reminder delivery can change without updatedAt.
+  bool sameValue(Note other) => id == other.id && title == other.title &&
+    content == other.content && color == other.color && createdAt == other.createdAt &&
+    updatedAt == other.updatedAt && reminderDate == other.reminderDate && sortAt == other.sortAt &&
+    isPinned == other.isPinned && isArchived == other.isArchived && isDeleted == other.isDeleted &&
+    isReminderSent == other.isReminderSent && reminderEnabled == other.reminderEnabled &&
+    tags.length == other.tags.length && Iterable<int>.generate(tags.length).every((i) => tags[i] == other.tags[i]);
+
   bool matches(String query) {
     final needle = query.toLowerCase();
     return title.toLowerCase().contains(needle) ||
