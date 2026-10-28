@@ -6,22 +6,22 @@ the current versioned file. Versioned APKs support resumable downloads and are
 served as attachments with the Android package MIME type.
 
 `src/lib/android-release.json` records the verified APK version, size, SHA-256 and
-GitHub Actions source run. The current release is **1.1.3+9**, run **40571187209**.
+GitHub Actions source run. The current release is **1.1.4+10**, run **40659214834**.
 Use that exact APK; do not rebuild it under the same download filename.
 
 ## Deployed version
 
-Deployed on 2026-10-28 at 05:04 Asia/Taipei (2026-10-27 21:04 UTC):
+Deployed on 2026-10-28 at 17:01 Asia/Taipei (2026-10-28 09:01 UTC):
 
-- Web revision `57535ae6774ed7be9e8fd5265be19f1439c53a91`, image
-  `monokeep-web:57535ae6`, successful web job in Actions run `40582935014`.
-- Bundle SHA-256: `c614f5293006c5c54bf050fede08994933ed8d2da832f5b7616be34945df02b6`.
+- Web revision `8f2f4e66a6570802c28720702d0276773884a727`, image
+  `monokeep-web:8f2f4e66`, successful web job in Actions run `40660227377`.
+- Bundle SHA-256: `749d9fcc974fbcd50e97a33e20a38c891859ae2a73d42788f461001ef364e4be`.
 - Persistent public files: `/var/www/monokeep-downloads`, mounted read-only at
   `/app/apps/web/public/downloads` in the permanent Compose override.
 - Verified backup of the previous image, source, release and Compose settings:
-  `/var/backups/monokeep/20261027T205511Z`. Previous image: `monokeep-web:e508a482`.
+  `/var/backups/monokeep/20261028T084656Z`. Previous image: `monokeep-web:57535ae6`.
 - The existing environment and other services were compared before switching;
-  there were no changes outside the web image, build context, labels and new mount.
+  the existing download mount was retained. Only the release download metadata changed.
 - Preview and public-site checks covered the complete APK checksum, download MIME
   and attachment headers, a non-cacheable 307 redirect, byte ranges (206), mobile
   and desktop layouts, and downloading by clicking the button in Chromium.
