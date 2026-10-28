@@ -305,12 +305,13 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     final displayed = _view != NoteView.active || _tierFilter == 'all' ? others : _tierFilter == 'alarm' ? alarm : scheduled;
     final columns = viewport >= 1024 ? 3 : viewport >= 640 ? 2 : 1;
     const section = TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2, color: muted);
-    return RefreshIndicator(onRefresh: _resume, child: CustomScrollView(
+    return LayoutBuilder(builder: (context, box) {
+      final padding = viewport >= 1024 ? 32.0 : 16.0;
+      final gutter = math.max(0.0, (box.maxWidth - 2 * padding - 1024) / 2);
+      return RefreshIndicator(onRefresh: _resume, child: CustomScrollView(
       key: PageStorageKey(_view), physics: const AlwaysScrollableScrollPhysics(),
       slivers: [SliverPadding(
-        padding: EdgeInsets.all(viewport >= 1024 ? 32 : 16),
-        sliver: SliverLayoutBuilder(builder: (context, constraints) => SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: math.max(0, (constraints.crossAxisExtent - 1024) / 2)),
+        padding: EdgeInsets.symmetric(vertical: padding, horizontal: padding + gutter),
           sliver: SliverMainAxisGroup(slivers: [
           SliverToBoxAdapter(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const SizedBox(height: 16),
@@ -360,9 +361,9 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           ],
           const SliverToBoxAdapter(child: SizedBox(height: 32)),
           ]),
-        )),
       )],
     ));
+    });
   }
 
   @override
