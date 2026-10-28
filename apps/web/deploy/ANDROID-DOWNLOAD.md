@@ -6,27 +6,33 @@ the current versioned file. Versioned APKs support resumable downloads and are
 served as attachments with the Android package MIME type.
 
 `src/lib/android-release.json` records the verified APK version, size, SHA-256 and
-GitHub Actions source run. The current release is **1.1.5+11**, run **40668131175**.
+GitHub Actions source run. The current release is **1.1.6+12**, run **40675908150**.
 Use that exact APK; do not rebuild it under the same download filename.
 
 ## Deployed version
 
-Deployed on 2026-10-28 at 18:13 Asia/Taipei (2026-10-28 10:13 UTC):
+Deployed on 2026-10-28 at 19:13 Asia/Taipei (2026-10-28 11:13 UTC):
 
-- Web revision `3d3c13c5b6109bf52b7493bfc0396b318526654e`, image
-  `monokeep-web:3d3c13c5`, successful web job in Actions run `40669683402`.
-- Bundle SHA-256: `c64e7f6001980b1eddcc901732517671ba4902620e75610fa1584853fc1af662`.
+- Web revision `6cfed1516d0990727187361c7aa92bec5b852016`, image
+  `monokeep-web:6cfed151`, successful web job in Actions run `40677291283`.
+- Bundle SHA-256: `9df08e5aea48fa58bc50778eaa183a347ba38bde55c7657ba37a50aeac904982`.
 - Persistent public files: `/var/www/monokeep-downloads`, mounted read-only at
   `/app/apps/web/public/downloads` in the permanent Compose override. Earlier
-  APKs (1.1.3+9, 1.1.4+10) are retained there.
+  APKs (1.1.3+9 to 1.1.5+11) are retained there.
 - Verified backup of the previous image, source, release and Compose settings:
-  `/var/backups/monokeep/20261028T100930Z`. Previous image: `monokeep-web:8f2f4e66`,
-  also tagged `monokeep-web:rollback-20261028T100930Z`.
+  `/var/backups/monokeep/20261028T111149Z`. Previous image: `monokeep-web:3d3c13c5`,
+  also tagged `monokeep-web:rollback-20261028T111149Z`.
 - The resolved Compose configuration changed only the web service's image, build
   context and revision label; environment and download mount were retained.
-- Preview and public-site checks covered the complete APK checksum, download MIME
-  and attachment headers, a non-cacheable 307 redirect and byte ranges (206).
-  Public `/login` and `/sw.js` returned 200. Database migrations were not required.
+- On a private preview port and on the server after switching: `/login` and
+  `/sw.js` 200, a non-cacheable 307 redirect to the 1.1.6 APK, complete APK
+  checksum, package MIME and attachment headers, byte ranges (206). Direct
+  `http://217.60.37.161:3000/login` returned 200. Database migrations were not required.
+- **Not verified over the public URL:** right after switching, every request to
+  `https://monokeep.cloudpub.ru` returned `402 Payment Required` from the CloudPub
+  edge (`Server: CloudPub`, "Превышено ограничение бесплатной версии"). The
+  CloudPub client does not run on this VPS. The tunnel account limit must be
+  resolved separately; then repeat the public checks above.
 
 ## Publish or update
 
