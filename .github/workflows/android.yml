@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Debug APK or release signed with repository secrets'
+        description: 'Signed release APK, debug APK, or web bundle only'
         type: choice
-        options: [release, debug]
+        options: [release, debug, web]
         default: release
       release_artifact_run:
         description: 'Optional existing run ID: verify and launch its release APK without rebuilding'
@@ -58,7 +58,7 @@ jobs:
             dist/monokeep-web.tar.gz.sha256
           if-no-files-found: error
   apk:
-    if: ${{ !inputs.release_artifact_run }}
+    if: ${{ !inputs.release_artifact_run && inputs.mode != 'web' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     defaults:
