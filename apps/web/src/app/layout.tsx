@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { LiquidGlassScene } from "@/components/ui/liquid-glass-scene";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,8 +29,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="light">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} liquid-ui antialiased bg-background text-foreground`}
       >
+        <LiquidGlassScene />
         {children}
         <Toaster />
         <PushNotificationManager />

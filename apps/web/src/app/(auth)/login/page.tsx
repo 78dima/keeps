@@ -64,10 +64,10 @@ export default function LoginPage() {
     return (
         <div className="auth-glass-card rounded-2xl p-8 backdrop-blur-xl">
             <div className="mb-8 text-center">
-                <h1 className="bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-3xl font-bold text-transparent">
+                <h1 className="liquid-auth-title text-3xl font-bold">
                     Welcome Back
                 </h1>
-                <p className="mt-2 text-sm text-zinc-400">Sign in to access your cosmic notes</p>
+                <p className="mt-2 text-sm text-zinc-400">Sign in to access your notes</p>
             </div>
 
             <Form {...form}>
@@ -116,7 +116,7 @@ export default function LoginPage() {
                 </form>
             </Form>
 
-            <div className="mt-6 text-center text-sm text-zinc-500">
+            <div className="mt-6 text-center text-sm text-muted-foreground">
                 Don&apos;t have an account?{' '}
                 <Link href="/register" className="font-medium text-violet-400 transition-colors hover:text-violet-300 hover:underline">
                     Register

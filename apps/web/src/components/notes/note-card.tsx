@@ -1,5 +1,7 @@
 'use client';
 
+import { noteGlassStyle } from '@/lib/glass';
+
 import { useState } from 'react';
 import { NoteResponseDto } from '@monokeep/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,7 +25,7 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
 
     // Map color to tailwind classes if needed, or use inline style for custom hex
     // Requirement allows "HEX string".
-    const bgStyle = note.color ? { backgroundColor: note.color } : {};
+    const bgStyle = noteGlassStyle(note.color);
 
     const handleAction = async (e: React.MouseEvent, type: 'pinning' | 'deleting' | 'restoring' | 'updating', action: () => Promise<void> | void) => {
         e.stopPropagation();
@@ -39,7 +41,7 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
     return (
         <Card
             className={cn(
-                "group relative transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 cursor-pointer h-full rounded-[2rem] border-transparent bg-white shadow-sm ring-1 ring-black/5",
+                "liquid-surface liquid-note group relative transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5 cursor-pointer h-full rounded-[2rem] border-transparent bg-white shadow-sm ring-1 ring-black/5",
                 note.isPinned && "ring-2 ring-primary/10 bg-blue-50/30"
             )}
             style={bgStyle}
@@ -66,6 +68,7 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 hover:bg-white/80 hover:shadow-sm rounded-full backdrop-blur-sm transition-all"
+                        aria-label={note.isPinned ? "Unpin note" : "Pin note"}
                         onClick={(e) => handleAction(e, 'pinning', () => onPin(note))}
                         disabled={!!actionStatus}
                     >
@@ -94,12 +97,12 @@ export function NoteCard({ note, onEdit, onPin, onDelete, onUpdate, isTrash, onR
             </div>
 
             <CardHeader className="p-5 pb-2">
-                <CardTitle className="text-lg font-display font-bold leading-tight tracking-tight text-foreground/90">
+                <CardTitle className="liquid-note-title text-lg font-display font-bold leading-tight tracking-tight text-foreground/90">
                     {note.title}
                 </CardTitle>
             </CardHeader>
             <CardContent className="p-5 pt-2">
-                <p className="text-[15px] leading-relaxed text-foreground/70 whitespace-pre-wrap line-clamp-[10] font-sans">
+                <p className="liquid-note-text text-[15px] leading-relaxed text-foreground/70 whitespace-pre-wrap line-clamp-[10] font-sans">
                     {note.content}
                 </p>
 

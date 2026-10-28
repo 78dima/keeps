@@ -1,5 +1,7 @@
 'use client';
 
+import { noteGlassStyle } from '@/lib/glass';
+
 import { useEffect, useState } from 'react';
 import { NoteResponseDto } from '@monokeep/shared';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -72,7 +74,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && !isSaving && onClose()}>
-            <DialogContent className="sm:max-w-[700px] p-0 gap-0 rounded-[2rem] border-0 shadow-2xl bg-white/90 backdrop-blur-2xl ring-1 ring-white/20 transition-all duration-300 flex flex-col max-h-[90vh] [&>button]:hidden outline-none" style={{ backgroundColor: color ? `${color}F0` : undefined }}>
+            <DialogContent className="sm:max-w-[700px] p-0 gap-0 rounded-[2rem] border-0 shadow-2xl bg-white/90 backdrop-blur-2xl ring-1 ring-white/20 transition-all duration-300 flex flex-col max-h-[90vh] [&>button]:hidden outline-none" style={noteGlassStyle(color)}>
                 {/* Custom Close Button - Absolute Positioned */}
                 <div className="absolute right-4 top-4 z-50">
                     <button
@@ -120,7 +122,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
 
                         {/* Controls Section within scroll view to prevent cut-off */}
                         <div className="mt-8 mb-4">
-                            <div className="flex items-center gap-2 mb-3">
+                            <div className="liquid-reminder-row flex items-center gap-2 mb-3">
                                 <div className="flex items-center gap-2 text-xs font-bold text-black/50 uppercase tracking-widest">
                                     <CalendarIcon className="w-3 h-3" />
                                     <span>Reminder</span>
@@ -149,6 +151,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                                                 : 'bg-black/5 text-black/30 hover:bg-black/10 hover:text-black/50'
                                             }
                                         `}
+                                        aria-pressed={notifyEnabled}
                                         title={notifyEnabled ? 'Уведомление будет отправлено' : 'Уведомление отключено — нажмите чтобы включить'}
                                     >
                                         {notifyEnabled ? (
@@ -165,8 +168,9 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                                     {['#ffffff', '#f28b82', '#fbbc04', '#fff475', '#ccff90', '#a7ffeb', '#cbf0f8', '#aecbfa', '#d7aefb', '#fdcfe8', '#e6c9a8', '#e8eaed'].map(c => (
                                         <button
                                             key={c}
-                                            className={`w-9 h-9 flex-shrink-0 rounded-full cursor-pointer border-2 border-white/50 transition-all duration-200 hover:scale-110 shadow-sm ${color === c ? 'ring-2 ring-black/20 scale-110 shadow-md' : 'hover:shadow-md'}`}
-                                            style={{ backgroundColor: c }}
+                                            className={`liquid-color w-9 h-9 flex-shrink-0 rounded-full cursor-pointer border-2 border-white/50 transition-all duration-200 hover:scale-110 shadow-sm ${color === c ? 'ring-2 ring-black/20 scale-110 shadow-md' : 'hover:shadow-md'}`}
+                                            style={noteGlassStyle(c)}
+                                            aria-pressed={(color || "#ffffff") === c}
                                             onClick={() => !isSaving && setColor(c)}
                                             disabled={isSaving}
                                             aria-label={`Select color ${c}`}
@@ -178,7 +182,7 @@ export function EditNoteDialog({ note, isOpen, onClose, onUpdate }: EditNoteDial
                     </div>
 
                     {/* Fixed Footer */}
-                    <DialogFooter className="px-8 py-6 pt-4 bg-gradient-to-t from-black/5 to-transparent shrink-0 flex gap-3 sm:justify-end z-20">
+                    <DialogFooter className="liquid-dialog-footer px-8 py-6 pt-4 bg-gradient-to-t from-black/5 to-transparent shrink-0 flex gap-3 sm:justify-end z-20">
                         <Button
                             variant="ghost"
                             className="rounded-full px-6 py-2 h-auto hover:bg-black/5 text-black/60 hover:text-foreground font-medium transition-all"
