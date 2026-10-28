@@ -86,7 +86,7 @@ export function ImportNotesDialog() {
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="flex items-center justify-center w-full">
-                        <label className="liquid-surface flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                             <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                 {isLoading ? (
                                     <div className="flex flex-col items-center">

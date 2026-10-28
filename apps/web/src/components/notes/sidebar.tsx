@@ -38,7 +38,6 @@ function SidebarContent({ className, onItemClick }: { className?: string, onItem
                             <Link
                                 key={link.href}
                                 href={link.href}
-                                aria-current={isActive ? "page" : undefined}
                                 onClick={onItemClick}
                                 className={cn(
                                     'flex items-center gap-3 rounded-full px-4 py-3 transition-all duration-200 group',
@@ -57,7 +56,7 @@ function SidebarContent({ className, onItemClick }: { className?: string, onItem
                     <PinnedNotesList onItemClick={onItemClick} />
                 </div>
             </div>
-            <div className="liquid-sidebar-footer p-4 border-t border-black/5 space-y-2 bg-white/50 shrink-0">
+            <div className="p-4 border-t border-black/5 space-y-2 bg-white/50 shrink-0">
                 <AndroidDownload />
                 <ImportNotesDialog />
                 <MigrationBackup />
@@ -181,10 +180,9 @@ function PinnedNotesList({ onItemClick }: { onItemClick?: () => void }) {
             </h3>
             <div className="space-y-1">
                 {notes.map((note) => (
-                    <button
-                        type="button"
+                    <div
                         key={note.id}
-                        className="group w-full text-left flex items-center justify-between rounded-lg px-2 py-1.5 text-sm font-medium hover:bg-muted/50 cursor-pointer"
+                        className="group flex items-center justify-between rounded-lg px-2 py-1.5 text-sm font-medium hover:bg-muted/50 cursor-pointer"
                         onClick={() => {
                             openEditModal(note);
                             onItemClick?.();
@@ -194,7 +192,7 @@ function PinnedNotesList({ onItemClick }: { onItemClick?: () => void }) {
                             <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />
                             <span className="truncate text-foreground/80">{note.title || 'Untitled'}</span>
                         </div>
-                    </button>
+                    </div>
                 ))}
 
 

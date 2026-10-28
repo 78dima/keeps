@@ -47,14 +47,14 @@ export function TagInput({ value = [], onChange, placeholder = "Add tag...", cla
 
     return (
         <div className={cn(
-            "liquid-tag-input flex flex-wrap gap-2 items-center p-2 rounded-md border border-input bg-transparent focus-within:ring-1 focus-within:ring-ring",
+            "flex flex-wrap gap-2 items-center p-2 rounded-md border border-input bg-transparent focus-within:ring-1 focus-within:ring-ring",
             disabled && "opacity-50 cursor-not-allowed",
             className
         )}>
             {value.map((tag) => (
                 <span
                     key={tag}
-                    className="liquid-tag flex items-center gap-1 bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded-full animate-in fade-in zoom-in duration-200"
+                    className="flex items-center gap-1 bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded-full animate-in fade-in zoom-in duration-200"
                 >
                     {tag}
                     <button

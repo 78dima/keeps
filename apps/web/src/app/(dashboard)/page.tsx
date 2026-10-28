@@ -1,7 +1,5 @@
 'use client';
 
-import { noteGlassStyle } from '@/lib/glass';
-
 import { useEffect, useState } from 'react';
 import { CreateNote } from '@/components/notes/create-note';
 import { NoteCard } from '@/components/notes/note-card';
@@ -144,7 +142,6 @@ export default function DashboardPage() {
                         {filterButtons.map(({ key, label, count }) => (
                             <button
                                 key={key}
-                                aria-pressed={tierFilter === key}
                                 onClick={() => setTierFilter(key)}
                                 className={`
                                     px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200
@@ -166,9 +163,8 @@ export default function DashboardPage() {
 
                     {/* Color filter pills */}
                     {usedColors.length > 0 && (
-                        <div className="flex flex-wrap gap-2 pl-1 items-center">
+                        <div className="flex gap-2 pl-1 items-center">
                             <button
-                                aria-pressed={colorFilter === null}
                                 onClick={() => setColorFilter(null)}
                                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${colorFilter === null
                                         ? 'bg-foreground text-background shadow-md'
@@ -181,13 +177,11 @@ export default function DashboardPage() {
                                 <button
                                     key={c}
                                     onClick={() => setColorFilter(colorFilter === c ? null : c)}
-                                    className={`liquid-color w-6 h-6 rounded-full border-2 transition-all duration-200 hover:scale-110 ${colorFilter === c
+                                    className={`w-6 h-6 rounded-full border-2 transition-all duration-200 hover:scale-110 ${colorFilter === c
                                             ? 'ring-2 ring-black/30 scale-110 shadow-md border-white/70'
                                             : 'border-black/10 hover:shadow-md'
                                         }`}
-                                    style={noteGlassStyle(c)}
-                                    aria-pressed={colorFilter === c}
-                                    aria-label={NOTE_COLORS_MAP[c] || c}
+                                    style={{ backgroundColor: c }}
                                     title={NOTE_COLORS_MAP[c] || c}
                                 />
                             ))}

@@ -88,7 +88,7 @@ export default function DashboardLayout({
     }
 
     return (
-        <div className="liquid-dashboard min-h-screen w-full bg-background">
+        <div className="min-h-screen w-full bg-background">
             <Sidebar />
             <MobileSidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
 

@@ -45,7 +45,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
-        data-glass-variant={variant ?? "default"}
         ref={ref}
         {...props}
       />

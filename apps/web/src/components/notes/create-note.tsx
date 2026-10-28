@@ -1,7 +1,5 @@
 'use client';
 
-import { noteGlassStyle } from '@/lib/glass';
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -80,7 +78,7 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
         return (
             <div className="flex justify-center mb-8 px-4">
                 <Card
-                    className="liquid-surface liquid-create w-full max-w-[600px] shadow-sm hover:shadow-lg transition-all duration-300 cursor-text rounded-full border-transparent bg-white ring-1 ring-black/5 group"
+                    className="w-full max-w-[600px] shadow-sm hover:shadow-lg transition-all duration-300 cursor-text rounded-full border-transparent bg-white ring-1 ring-black/5 group"
                     onClick={() => setIsExpanded(true)}
                 >
                     <CardContent className="p-0 pl-6 flex items-center text-muted-foreground/60 font-medium h-14">
@@ -109,8 +107,8 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
     return (
         <div className="flex justify-center mb-8 px-4">
             <Card
-                className="liquid-surface liquid-create w-full max-w-[600px] shadow-xl shadow-black/5 rounded-[2rem] border-transparent ring-1 ring-black/5 transition-all"
-                style={noteGlassStyle(color)}
+                className="w-full max-w-[600px] shadow-xl shadow-black/5 rounded-[2rem] border-transparent ring-1 ring-black/5 transition-all"
+                style={{ backgroundColor: color ? `${color}F0` : 'white' }}
                 ref={containerRef}
             >
                 <CardContent className="p-6 flex flex-col gap-1">
@@ -143,7 +141,7 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
                     {/* Reminder + Color section */}
                     <div className="mt-4 pt-3 border-t border-black/5 space-y-3">
                         {/* Reminder */}
-                        <div className="liquid-reminder-row flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1.5 text-xs font-bold text-black/40 uppercase tracking-widest">
                                 <CalendarIcon className="w-3 h-3" />
                                 <span>Reminder</span>
@@ -156,20 +154,19 @@ export function CreateNote({ onCreated }: CreateNoteProps) {
                                 disabled={isCreating}
                             />
                             {reminder && (
-                                <div className="liquid-tag p-1.5 rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-300">
+                                <div className="p-1.5 rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-300">
                                     <Bell className="w-3.5 h-3.5" />
                                 </div>
                             )}
                         </div>
 
                         {/* Color palette */}
-                        <div className="liquid-palette flex gap-2.5 items-center overflow-x-auto scrollbar-hide">
+                        <div className="flex gap-2.5 items-center overflow-x-auto scrollbar-hide">
                             {NOTE_COLORS.map(c => (
                                 <button
                                     key={c}
-                                    className={`liquid-color w-7 h-7 flex-shrink-0 rounded-full cursor-pointer border-2 border-white/50 transition-all duration-200 hover:scale-110 shadow-sm ${color === c ? 'ring-2 ring-black/20 scale-110 shadow-md' : 'hover:shadow-md'}`}
-                                    style={noteGlassStyle(c)}
-                                    aria-pressed={(color || "#ffffff") === c}
+                                    className={`w-7 h-7 flex-shrink-0 rounded-full cursor-pointer border-2 border-white/50 transition-all duration-200 hover:scale-110 shadow-sm ${color === c ? 'ring-2 ring-black/20 scale-110 shadow-md' : 'hover:shadow-md'}`}
+                                    style={{ backgroundColor: c }}
                                     onClick={() => !isCreating && setColor(c === '#ffffff' ? null : c)}
                                     disabled={isCreating}
                                     aria-label={`Select color ${c}`}
